@@ -1,0 +1,59 @@
+Generic single-database configuration for Flask-Migrate.
+
+Este diretório contém as migrações do banco de dados PostgreSQL para a JusCash API.
+
+## Como usar
+
+### Inicializar migrações (primeira vez):
+```bash
+flask init-migrations
+```
+
+### Criar nova migração:
+```bash
+flask db migrate -m "Descrição da mudança"
+```
+
+### Aplicar migrações:
+```bash
+flask db upgrade
+```
+
+### Voltar migração:
+```bash
+flask db downgrade
+```
+
+### Ver histórico de migrações:
+```bash
+flask db history
+```
+
+### Ver migração atual:
+```bash
+flask db current
+```
+
+## Migrações existentes
+
+- **001_initial_migration.py**: Migração inicial que cria a tabela `publicacoes` com todos os índices e constraints necessários
+
+## Estrutura da migração inicial
+
+A migração 001 cria:
+- Tabela `publicacoes` com todos os campos necessários
+- Extensões PostgreSQL: `uuid-ossp` e `pg_trgm`
+- Índices otimizados para performance
+- Índices GIN para busca textual
+- Triggers para atualização automática de `updated_at`
+- Constraints de validação
+- Comentários de documentação
+
+## Desenvolvimento
+
+Sempre que modificar modelos SQLAlchemy, gere uma nova migração:
+
+```bash
+flask db migrate -m "Nova funcionalidade"
+flask db upgrade
+``` 
