@@ -15,20 +15,96 @@ def execute_migrations():
         # Configurar variáveis de ambiente
         os.environ['FLASK_APP'] = 'run.py'
         
-        # Importar aplicação
-        from app import create_app, db
+        # Verificar se dependências críticas estão disponíveis
+        print("🔍 Verificando dependências...")
+        try:
+            import flask
+            print(f"✅ Flask {flask.__version__}")
+        except ImportError as e:
+            print(f"❌ Flask não encontrado: {e}")
+            return False
+            
+        try:
+            import sqlalchemy
+            print(f"✅ SQLAlchemy {sqlalchemy.__version__}")
+        except ImportError as e:
+            print(f"❌ SQLAlchemy não encontrado: {e}")
+            return False
+        
+        # Importar aplicação com tratamento de erro
+        try:
+            from app import create_app, db
+            print("✅ Módulo app importado")
+        except ImportError as e:
+            print(f"❌ Erro ao importar app: {e}")
+            print("🔍 Verificando se todas as dependências estão instaladas...")
+            
+            # Tentar identificar qual dependência está faltando
+            missing_deps = []
+            
+            try:
+                import celery
+            except ImportError:
+                missing_deps.append("celery")
+                
+            try:
+                import flask_migrate
+            except ImportError:
+                missing_deps.append("flask-migrate")
+                
+            try:
+                import flask_restx
+            except ImportError:
+                missing_deps.append("flask-restx")
+            
+            if missing_deps:
+                print(f"📦 Dependências faltando: {', '.join(missing_deps)}")
+                print("💡 Instalando dependências críticas...")
+                
+                import subprocess
+                for dep in missing_deps:
+                    try:
+                        if dep == "flask-migrate":
+                            subprocess.run([sys.executable, "-m", "pip", "install", "Flask-Migrate==4.0.5"], check=True)
+                        elif dep == "celery":
+                            subprocess.run([sys.executable, "-m", "pip", "install", "celery==5.3.4"], check=True)
+                        elif dep == "flask-restx":
+                            subprocess.run([sys.executable, "-m", "pip", "install", "Flask-RESTX==1.3.0"], check=True)
+                        print(f"✅ {dep} instalado")
+                    except Exception as install_error:
+                        print(f"❌ Erro ao instalar {dep}: {install_error}")
+                
+                # Tentar importar novamente
+                try:
+                    from app import create_app, db
+                    print("✅ Módulo app importado após instalação")
+                except ImportError as e2:
+                    print(f"❌ Ainda não foi possível importar app: {e2}")
+                    return False
+            else:
+                return False
         
         # Criar aplicação
+        print("📊 Criando aplicação Flask...")
         app = create_app()
         
         with app.app_context():
             print("🔍 Testando conexão PostgreSQL...")
             
             # Testar conexão
-            with db.engine.connect() as conn:
-                result = conn.execute(db.text('SELECT version()'))
-                version = result.fetchone()[0]
-                print(f"✅ PostgreSQL: {version[:60]}...")
+            try:
+                with db.engine.connect() as conn:
+                    result = conn.execute(db.text('SELECT version()'))
+                    version = result.fetchone()[0]
+                    print(f"✅ PostgreSQL: {version[:60]}...")
+            except Exception as conn_error:
+                print(f"❌ Erro de conexão PostgreSQL: {conn_error}")
+                print("🔍 Verificando configuração do banco...")
+                print(f"DATABASE_URL presente: {'DATABASE_URL' in os.environ}")
+                if 'DATABASE_URL' in os.environ:
+                    db_url = os.environ['DATABASE_URL']
+                    print(f"DATABASE_URL: {db_url[:50]}...")
+                return False
             
             # Verificar tabelas atuais
             inspector = db.inspect(db.engine)
@@ -112,6 +188,7 @@ def execute_migrations():
                 except Exception as alt_error:
                     print(f"❌ Erro no método alternativo: {alt_error}")
                     db.session.rollback()
+                    return False
             
             # Verificar resultado final
             time.sleep(2)
@@ -150,5 +227,15 @@ def execute_migrations():
         return False
 
 if __name__ == '__main__':
+    print("=" * 60)
+    print("🚀 JusCash API - Configuração de Banco Railway")
+    print("=" * 60)
+    
     success = execute_migrations()
-    sys.exit(0 if success else 1) 
+    
+    if success:
+        print("✅ SUCESSO: Banco configurado, iniciando aplicação...")
+        sys.exit(0)
+    else:
+        print("❌ FALHA: Problema na configuração do banco")
+        sys.exit(1) 
