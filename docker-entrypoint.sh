@@ -15,9 +15,21 @@ else
     echo "✅ SECRET_KEY encontrada: ${SECRET_KEY:0:20}..."
 fi
 
-# Aguardar PostgreSQL usando DATABASE_URL
+# Aguardar PostgreSQL
 echo "⏳ Aguardando PostgreSQL..."
-for i in {1..30}; do
+if [ -n "$DATABASE_URL" ]; then
+  export PGPASSWORD=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $4}')
+  DB_HOST=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $5}')
+  DB_PORT=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $6}')
+  DB_USER=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $3}')
+  DB_NAME=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $7}')
+  
+  # Adicionar sslmode=disable para evitar problemas de conexão
+  export DATABASE_URL="$DATABASE_URL?sslmode=disable"
+  
+  LIMIT=30
+  COUNTER=0
+  while [ $COUNTER -lt $LIMIT ]; do
     if python3 -c "
 import psycopg2
 import os
@@ -34,7 +46,11 @@ except Exception as e:
     fi
     echo "PostgreSQL não está pronto - tentativa $i/30"
     sleep 3
-done
+    COUNTER=$((COUNTER+1))
+  done
+else
+  echo "⚠️ DATABASE_URL não definida"
+fi
 
 echo "✅ PostgreSQL conectado!"
 
