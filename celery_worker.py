@@ -12,6 +12,7 @@ celery.conf.update(
     worker_disable_rate_limits=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    result_backend=app.config['REDIS_URL'],
     beat_schedule={
         'raspagem_diaria': {
             'task': 'app.tasks.scraping_tasks.extract_daily_publicacoes',

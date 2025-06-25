@@ -31,9 +31,6 @@ class DJEScraper:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--ignore-certificate-errors")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--remote-debugging-port=9222")
         
         try:
             # Tentar instalar e usar o ChromeDriver via webdriver-manager
