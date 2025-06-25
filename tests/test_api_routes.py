@@ -2,7 +2,7 @@ import json
 from app import db
 
 def test_get_publicacoes_empty(client):
-    response = client.get('/api/publicacoes')
+    response = client.get('/api/publicacoes/')
     assert response.status_code == 200
     assert json.loads(response.data) == []
 
@@ -10,7 +10,7 @@ def test_get_publicacoes_with_data(client, sample_publicacao_model):
     db.session.add(sample_publicacao_model)
     db.session.commit()
     
-    response = client.get('/api/publicacoes')
+    response = client.get('/api/publicacoes/')
     assert response.status_code == 200
     
     data = json.loads(response.data)

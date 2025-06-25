@@ -25,7 +25,7 @@ def sample_publicacoes():
             data_disponibilizacao=datetime(2024, 10, 1),
             autores="João da Silva",
             advogados="Dr. José Santos",
-            conteudo_completo="Processo contra o INSS sobre aposentadoria",
+            conteudo_completo="Processo contra o Instituto Nacional do Seguro Social - INSS sobre aposentadoria",
             valor_principal_bruto=10000.00,
             status="nova"
         ),
