@@ -494,6 +494,10 @@ class ScrapingHealth(Resource):
             health_status['services']['database'] = 'unavailable'
             health_status['services']['database_error'] = str(e)
         
+        # Versão do deploy (teste CI/CD)
+        health_status['version'] = 'v1.0.1-cicd-test'
+        health_status['deploy_method'] = 'GitHub Actions CI/CD'
+        
         # Verificar Selenium
         try:
             from app.infrastructure.scraping.dje_scraper import DJEScraper
