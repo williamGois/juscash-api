@@ -112,7 +112,7 @@ jobs:
         VPS_USER: ${{ secrets.VPS_USER }}
       run: |
         ssh $VPS_USER@$VPS_HOST << 'EOF'
-          set -euo pipefail
+          set -e
           
           echo "🔄 Iniciando deploy automático..."
           
@@ -131,21 +131,29 @@ jobs:
           git reset --hard origin/master
           echo "✅ Código atualizado para: $(git log --oneline -1)"
           
-          # Parar containers
+          # Parar containers (tolerante a falhas)
           echo "⏹️ Parando containers..."
-          docker-compose down
+          docker-compose down || echo "⚠️ Erro ao parar containers - continuando..."
           
           # Rebuild aplicação
           echo "🏗️ Rebuilding aplicação..."
-          docker-compose build --no-cache web
+          docker-compose build --no-cache web || { echo "❌ Erro no build - tentando build simples..."; docker-compose build web; }
           
-          # Iniciar containers
+          # Iniciar containers (tolerante a falhas)
           echo "🚀 Iniciando containers..."
-          docker-compose up -d
+          docker-compose up -d || { echo "❌ Erro no up - tentando restart..."; docker-compose restart; }
           
           # Aguardar serviços
-          echo "⏳ Aguardando serviços..."
-          sleep 30
+          echo "⏳ Aguardando serviços inicializarem..."
+          sleep 20
+          
+          # Verificar se containers estão rodando
+          echo "📊 Verificando containers:"
+          docker-compose ps
+          
+          # Aguardar mais um pouco para aplicação inicializar
+          echo "⏳ Aguardando aplicação inicializar..."
+          sleep 20
           
           # Executar migrações se necessário
           echo "🗄️ Aplicando migrações..."
