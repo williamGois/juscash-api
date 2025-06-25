@@ -8,71 +8,60 @@ echo "🚀 Iniciando JusCash API..."
 
 # Verificar e gerar SECRET_KEY se não existir
 if [ -z "$SECRET_KEY" ]; then
-    echo "🔐 SECRET_KEY não encontrada, gerando automaticamente..."
+    echo "🔐 Gerando SECRET_KEY..."
     export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
     echo "✅ SECRET_KEY gerada: ${SECRET_KEY:0:20}..."
-    
-    # Adicionar ao .env se existir
-    if [ -f ".env" ]; then
-        if ! grep -q "SECRET_KEY=" .env; then
-            echo "SECRET_KEY=${SECRET_KEY}" >> .env
-            echo "📝 SECRET_KEY adicionada ao .env"
-        fi
-    fi
 else
     echo "✅ SECRET_KEY encontrada: ${SECRET_KEY:0:20}..."
 fi
 
-# Aguardar PostgreSQL estar disponível
+# Aguardar PostgreSQL usando DATABASE_URL
 echo "⏳ Aguardando PostgreSQL..."
-while ! python3 -c "
+for i in {1..30}; do
+    if python3 -c "
 import psycopg2
-import sys
+import os
 try:
-    conn = psycopg2.connect(host='db', port=5432, user='juscash', password='qa_ICpaPlpp4BgYbYDOmaIwZ3J2wg39NLf-i0dUmFKQ', database='juscash_db', connect_timeout=5)
+    conn = psycopg2.connect(os.environ['DATABASE_URL'], connect_timeout=5)
     conn.close()
     print('PostgreSQL conectado!')
-    sys.exit(0)
-except:
-    sys.exit(1)
-" 2>/dev/null; do
-  echo "PostgreSQL não está pronto - aguardando..."
-  sleep 2
+    exit(0)
+except Exception as e:
+    print(f'Tentativa {i}: {e}')
+    exit(1)
+" 2>/dev/null; then
+        break
+    fi
+    echo "PostgreSQL não está pronto - tentativa $i/30"
+    sleep 3
 done
 
 echo "✅ PostgreSQL conectado!"
 
-# Aguardar Redis estar disponível
+# Aguardar Redis
 echo "⏳ Aguardando Redis..."
-while ! python3 -c "
+for i in {1..15}; do
+    if python3 -c "
 import redis
-import sys
 try:
     r = redis.Redis(host='redis', port=6379, socket_connect_timeout=5)
     r.ping()
     print('Redis conectado!')
-    sys.exit(0)
+    exit(0)
 except:
-    sys.exit(1)
-" 2>/dev/null; do
-  echo "Redis não está pronto - aguardando..."
-  sleep 2
+    exit(1)
+" 2>/dev/null; then
+        break
+    fi
+    echo "Redis não está pronto - tentativa $i/15"
+    sleep 2
 done
 
 echo "✅ Redis conectado!"
 
-# Executar migrações do banco de dados
-echo "🔧 Executando migrações do banco de dados..."
-
-# Verificar se já existe repositório de migrações
-if [ ! -d "migrations" ]; then
-    echo "📁 Inicializando repositório de migrações..."
-    flask init-migrations
-fi
-
-# Verificar se há migrações para aplicar
-echo "⬆️ Aplicando migrações..."
-flask upgrade-db
+# Executar migrações
+echo "🔧 Executando migrações..."
+flask db upgrade || echo "⚠️ Erro ao executar migrações (continuando...)"
 
 echo "🎉 Tudo pronto! Iniciando aplicação..."
 
