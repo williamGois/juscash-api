@@ -47,7 +47,7 @@ services:
     entrypoint: ["./docker-entrypoint.sh"]
     command: ["python", "run.py"]
 
-  celery:
+  worker:
     build: .
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
@@ -64,24 +64,6 @@ services:
       - .:/app
     entrypoint: ["./docker-entrypoint.sh"]
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
-
-  celery-beat:
-    build: .
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY}
-      - FLASK_ENV=${FLASK_ENV:-development}
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - .:/app
-      - ./logs:/app/logs
-    entrypoint: ["./docker-entrypoint.sh"]
-    command: ["python", "cron_schedule.py"]
 
   flower:
     build: .
