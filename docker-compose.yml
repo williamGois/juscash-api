@@ -87,13 +87,16 @@ services:
     build: .
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SECRET_KEY=${SECRET_KEY}
     ports:
       - "5555:5555"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
-    command: ["celery", "-A", "celery_worker.celery", "flower", "--port=5555"]
+    entrypoint: ["./docker-entrypoint.sh"]
+    command: ["flower", "-A", "celery_worker.celery", "--port=5555", "--basic_auth=admin:admin123"]
 
 volumes:
   postgres_data: 

@@ -9,28 +9,37 @@ app = create_app(os.getenv('FLASK_CONFIG') or 'default')
 def make_shell_context():
     return dict(db=db, PublicacaoModel=PublicacaoModel)
 
-@app.cli.command()
+@app.cli.command('init-migrations')
 def init_migrations():
     """Initialize migration repository"""
-    from flask_migrate import init
-    init()
-    click.echo('✅ Migration repository initialized!')
+    try:
+        from flask_migrate import init
+        init()
+        click.echo('✅ Migration repository initialized!')
+    except Exception as e:
+        click.echo(f'❌ Error initializing migrations: {str(e)}')
 
-@app.cli.command()
+@app.cli.command('create-migration')
 def create_migration():
     """Create a new migration"""
-    from flask_migrate import migrate as create_migrate
-    create_migrate(message='Initial migration')
-    click.echo('✅ Migration created!')
+    try:
+        from flask_migrate import migrate as create_migrate
+        create_migrate(message='Initial migration')
+        click.echo('✅ Migration created!')
+    except Exception as e:
+        click.echo(f'❌ Error creating migration: {str(e)}')
 
-@app.cli.command()
+@app.cli.command('upgrade-db')
 def upgrade_db():
     """Run migrations to upgrade database"""
-    from flask_migrate import upgrade
-    upgrade()
-    click.echo('✅ Database upgraded successfully!')
+    try:
+        from flask_migrate import upgrade
+        upgrade()
+        click.echo('✅ Database upgraded successfully!')
+    except Exception as e:
+        click.echo(f'❌ Error upgrading database: {str(e)}')
 
-@app.cli.command()
+@app.cli.command('db-status')
 def db_status():
     """Check database connection and tables"""
     try:
