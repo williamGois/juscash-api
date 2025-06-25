@@ -112,7 +112,7 @@ jobs:
         VPS_USER: ${{ secrets.VPS_USER }}
       run: |
         ssh $VPS_USER@$VPS_HOST << 'EOF'
-          set -e
+          set -euo pipefail
           
           echo "🔄 Iniciando deploy automático..."
           
@@ -149,31 +149,59 @@ jobs:
           
           # Executar migrações se necessário
           echo "🗄️ Aplicando migrações..."
-          docker-compose exec -T web flask db upgrade || echo "⚠️ Migrações falharam"
+          if ! docker-compose exec -T web flask db upgrade; then
+            echo "⚠️ Migrações falharam - continuando..."
+          else
+            echo "✅ Migrações aplicadas com sucesso"
+          fi
           
-          # Health check
+          # Health check rigoroso
           echo "🏥 Verificando saúde da aplicação..."
           sleep 15
           
-          if curl -f http://localhost:5000/api/simple/ping; then
-            echo "✅ Deploy realizado com sucesso!"
-            
-            # Mostrar status
-            echo "📊 Status dos containers:"
-            docker-compose ps
-            
-            # Limpar imagens antigas
-            docker image prune -f
-            
-            # Manter apenas 5 backups mais recentes
-            ls -t backup_*.sql 2>/dev/null | tail -n +6 | xargs -r rm
-            
-          else
-            echo "❌ Deploy falhou! Verificando logs..."
-            docker-compose logs web | tail -20
-            exit 1
+          echo "🔍 Tentativa 1/3 de health check..."
+          if ! curl -f --max-time 10 http://localhost:5000/api/simple/ping; then
+            echo "⚠️ Tentativa 1 falhou, aguardando..."
+            sleep 10
+            echo "🔍 Tentativa 2/3 de health check..."
+            if ! curl -f --max-time 10 http://localhost:5000/api/simple/ping; then
+              echo "⚠️ Tentativa 2 falhou, aguardando..."
+              sleep 10
+              echo "🔍 Tentativa 3/3 de health check..."
+              if ! curl -f --max-time 10 http://localhost:5000/api/simple/ping; then
+                echo "❌ DEPLOY FALHOU! API não responde após 3 tentativas"
+                echo "📊 Status dos containers:"
+                docker-compose ps || true
+                echo "🔍 Logs do container web:"
+                docker-compose logs web | tail -20 || true
+                exit 1
+              fi
+            fi
           fi
+          
+          echo "✅ Deploy realizado com sucesso! API respondendo corretamente"
+          
+          # Mostrar status
+          echo "📊 Status dos containers:"
+          docker-compose ps
+          
+          # Verificar commit atual
+          echo "📋 Commit deployado: $(git log --oneline -1)"
+          
+          # Limpar imagens antigas
+          docker image prune -f
+          
+          # Manter apenas 5 backups mais recentes
+          ls -t backup_*.sql 2>/dev/null | tail -n +6 | xargs -r rm || true
         EOF
+        
+        # Verificar se o comando SSH teve sucesso
+        if [ $? -ne 0 ]; then
+          echo "❌ Deploy falhou! Comando SSH retornou erro."
+          exit 1
+        fi
+        
+        echo "✅ Comando SSH executado com sucesso!"
 
     - name: 📱 Notify deployment status
       if: always()
