@@ -1,4 +1,4 @@
-from flask import request
+from flask import request, current_app
 from flask_restx import Namespace, Resource, fields
 from datetime import datetime
 from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
