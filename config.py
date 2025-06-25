@@ -64,7 +64,30 @@ class ProductionConfig(Config):
 
 class TestConfig(Config):
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'postgresql://juscash:juscash123@localhost:5432/juscash_test_db'
+    
+    # Usar DATABASE_URL do ambiente de teste (GitHub Actions) se disponível
+    TEST_DATABASE_URL = os.environ.get('DATABASE_URL')
+    if TEST_DATABASE_URL and TEST_DATABASE_URL.startswith("postgres://"):
+        TEST_DATABASE_URL = TEST_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    # Usar SQLite em memória para testes locais, PostgreSQL para CI
+    if TEST_DATABASE_URL:
+        SQLALCHEMY_DATABASE_URI = TEST_DATABASE_URL
+        # Configuração para PostgreSQL em CI
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            'pool_size': 1,
+            'pool_recycle': -1,
+            'pool_pre_ping': False,
+            'connect_args': {
+                'sslmode': 'disable'
+            }
+        }
+    else:
+        # SQLite em memória para testes locais
+        SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            'pool_pre_ping': False
+        }
 
 config = {
     'development': DevelopmentConfig,

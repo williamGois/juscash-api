@@ -1,34 +1,5 @@
-import pytest
 import json
-from datetime import datetime
-from app import create_app, db
-from app.infrastructure.database.models import PublicacaoModel
-
-@pytest.fixture
-def app():
-    app = create_app('testing')
-    with app.app_context():
-        db.create_all()
-        yield app
-        db.drop_all()
-
-@pytest.fixture
-def client(app):
-    return app.test_client()
-
-@pytest.fixture
-def sample_publicacao_model():
-    return PublicacaoModel(
-        numero_processo="1234567-89.2024.1.01.0001",
-        data_disponibilizacao=datetime(2024, 10, 1),
-        autores="João da Silva",
-        advogados="Dr. José Santos",
-        conteudo_completo="Conteúdo da publicação teste",
-        valor_principal_bruto=10000.00,
-        valor_principal_liquido=9500.00,
-        valor_juros_moratorios=500.00,
-        honorarios_advocaticios=1000.00
-    )
+from app import db
 
 def test_get_publicacoes_empty(client):
     response = client.get('/api/publicacoes')
