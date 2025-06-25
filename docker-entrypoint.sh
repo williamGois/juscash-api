@@ -29,7 +29,7 @@ while ! python3 -c "
 import psycopg2
 import sys
 try:
-    conn = psycopg2.connect(host='db', port=5432, user='juscash', password='juscash123', database='juscash', connect_timeout=5)
+    conn = psycopg2.connect(host='db', port=5432, user='juscash', password='juscash123', database='juscash_db', connect_timeout=5)
     conn.close()
     print('PostgreSQL conectado!')
     sys.exit(0)
