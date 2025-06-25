@@ -195,9 +195,12 @@ curl -X POST https://seu-app.up.railway.app/api/cron/scraping/daily
 
 ### Chrome/Selenium Não Funciona
 ```bash
-# Logs mostrarão erro de Chrome
-# Verificar se dependências estão instaladas
-# Dockerfile.railway já inclui Chrome
+# Logs podem mostrar: Erro ao acessar DJE: Message: Stacktrace:
+# Solução:
+# 1. Verifique se webdriver-manager está no requirements.txt
+# 2. O Dockerfile.railway já inclui dependências do Chrome
+# 3. O scraper.py tem fallback automático para o driver do sistema
+# 4. Verifique os logs do worker para erros de configuração do driver
 ```
 
 ### Timeout de Deploy

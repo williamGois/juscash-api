@@ -1,5 +1,6 @@
 import re
 import time
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from selenium import webdriver
@@ -7,6 +8,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import requests
 
@@ -15,18 +18,34 @@ class DJEScraper:
     def __init__(self, base_url: str = "https://dje.tjsp.jus.br/cdje"):
         self.base_url = base_url
         self.session = requests.Session()
-        self._setup_driver()
+        self.driver = self._setup_driver()
+        self.wait = WebDriverWait(self.driver, 20)
+        logging.basicConfig(level=logging.INFO)
     
     def _setup_driver(self):
+        """Configura o driver do Selenium com opções otimizadas."""
+        logging.info("Configurando o driver do Selenium...")
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--remote-debugging-port=9222")
         
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.wait = WebDriverWait(self.driver, 10)
+        try:
+            # Tentar instalar e usar o ChromeDriver via webdriver-manager
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            logging.info("Driver do Selenium configurado com sucesso via webdriver-manager.")
+            return driver
+        except Exception as e:
+            logging.warning(f"Falha ao usar webdriver-manager: {e}")
+            logging.info("Tentando usar o chromedriver padrão do sistema.")
+            # Fallback para o chromedriver padrão (útil no Railway)
+            return webdriver.Chrome(options=chrome_options)
     
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
         publicacoes = []
@@ -195,5 +214,6 @@ class DJEScraper:
         return None
     
     def close(self):
-        if hasattr(self, 'driver'):
-            self.driver.quit() 
+        if self.driver:
+            self.driver.quit()
+            logging.info("Driver do Selenium finalizado.") 
