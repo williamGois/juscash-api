@@ -605,6 +605,128 @@ class ScrapingDebug(Resource):
         
         return debug_info
 
+@scraping_ns.route('/test-celery-fix')
+class ScrapingTestCeleryFix(Resource):
+    @scraping_ns.doc('test_celery_fix')
+    def get(self):
+        """Teste avançado para diagnosticar e corrigir o problema do Celery"""
+        import os
+        from flask import current_app
+        
+        test_result = {
+            'timestamp': datetime.now().isoformat(),
+            'step1_environment': {},
+            'step2_app_config': {},
+            'step3_celery_creation': {},
+            'step4_manual_config': {},
+            'step5_solution': {}
+        }
+        
+        # STEP 1: Verificar variáveis de ambiente
+        redis_url_env = os.environ.get('REDIS_URL')
+        test_result['step1_environment'] = {
+            'REDIS_URL_from_env': redis_url_env[:20] + '***' if redis_url_env else None,
+            'RAILWAY_ENVIRONMENT': os.environ.get('RAILWAY_ENVIRONMENT'),
+            'FLASK_ENV': os.environ.get('FLASK_ENV')
+        }
+        
+        # STEP 2: Verificar configuração da app
+        redis_url_config = current_app.config.get('REDIS_URL')
+        test_result['step2_app_config'] = {
+            'REDIS_URL_from_config': redis_url_config[:20] + '***' if redis_url_config else None,
+            'config_keys': list(current_app.config.keys())[:10]  # Primeiras 10 keys
+        }
+        
+        # STEP 3: Tentar criar Celery manualmente
+        try:
+            from celery import Celery
+            
+            # Determinar a URL correta
+            redis_url = redis_url_config or redis_url_env or 'redis://localhost:6379/0'
+            
+            # Criar instância Celery de teste
+            test_celery = Celery('test_app')
+            
+            # Configurar explicitamente
+            test_celery.conf.update(
+                broker_url=redis_url,
+                result_backend=redis_url,
+                task_serializer='json',
+                accept_content=['json'],
+                result_serializer='json',
+                timezone='America/Sao_Paulo',
+                enable_utc=True
+            )
+            
+            test_result['step3_celery_creation'] = {
+                'status': 'success',
+                'broker_url': str(test_celery.conf.broker_url)[:20] + '***',
+                'result_backend': str(test_celery.conf.result_backend)[:20] + '***',
+                'task_serializer': test_celery.conf.task_serializer,
+                'timezone': test_celery.conf.timezone
+            }
+            
+            # Testar se consegue conectar
+            try:
+                test_celery.control.inspect().ping()
+                test_result['step3_celery_creation']['connection_test'] = 'success'
+            except Exception as e:
+                test_result['step3_celery_creation']['connection_test'] = f'failed: {str(e)}'
+                
+        except Exception as e:
+            test_result['step3_celery_creation'] = {
+                'status': 'failed',
+                'error': str(e)
+            }
+        
+        # STEP 4: Verificar Celery atual da aplicação
+        try:
+            from celery import current_app as celery_app
+            
+            test_result['step4_manual_config'] = {
+                'current_broker_url': str(celery_app.conf.broker_url) if celery_app.conf.broker_url else None,
+                'current_result_backend': str(celery_app.conf.result_backend) if celery_app.conf.result_backend else None,
+                'conf_keys': [k for k in dir(celery_app.conf) if not k.startswith('_')][:10]
+            }
+            
+            # Tentar reconfigurar o Celery atual
+            if redis_url_config or redis_url_env:
+                redis_url = redis_url_config or redis_url_env
+                
+                # Configurar de forma forçada
+                celery_app.conf.broker_url = redis_url
+                celery_app.conf.result_backend = redis_url
+                celery_app.conf.task_serializer = 'json'
+                celery_app.conf.timezone = 'America/Sao_Paulo'
+                
+                test_result['step4_manual_config']['force_config'] = {
+                    'applied': True,
+                    'new_broker_url': str(celery_app.conf.broker_url)[:20] + '***',
+                    'new_result_backend': str(celery_app.conf.result_backend)[:20] + '***'
+                }
+            
+        except Exception as e:
+            test_result['step4_manual_config'] = {
+                'error': str(e)
+            }
+        
+        # STEP 5: Propor solução
+        if redis_url_config or redis_url_env:
+            test_result['step5_solution'] = {
+                'status': 'solution_found',
+                'redis_available': True,
+                'recommended_action': 'force_celery_reconfiguration',
+                'code_fix': 'Apply make_celery fix or force configuration in __init__.py'
+            }
+        else:
+            test_result['step5_solution'] = {
+                'status': 'no_redis_url',
+                'redis_available': False,
+                'recommended_action': 'check_railway_redis_service'
+            }
+        
+        return test_result
+
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
     from .cron_routes import cron_ns
