@@ -227,7 +227,7 @@ class PublicacaoStatus(Resource):
 
 scraping_request_model = scraping_ns.model('ScrapingRequest', {
     'data_inicio': fields.DateTime(required=True, description='Data de início (ISO 8601)', example='2024-10-01T00:00:00'),
-    'data_fim': fields.DateTime(required=True, description='Data fim (ISO 8601)', example='2024-10-31T23:59:59')
+    'data_fim': fields.DateTime(required=True, description='Data fim (ISO 8601)', example='2024-10-30T23:59:59')
 })
 
 task_response_model = scraping_ns.model('TaskResponse', {
