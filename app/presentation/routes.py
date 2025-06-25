@@ -5,6 +5,7 @@ from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoes
 from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
 from app.infrastructure.scraping.dje_scraper import DJEScraper
 from app.tasks.scraping_tasks import extract_publicacoes_task
+import os
 
 
 publicacoes_ns = Namespace('publicacoes', description='Operações relacionadas às publicações do DJE')
@@ -257,6 +258,17 @@ class ScrapingExtract(Resource):
         
         try:
             from celery import current_app as celery_app
+            
+            # FORÇAR CONFIGURAÇÃO DO CELERY ANTES DE USAR
+            redis_url = current_app.config.get('REDIS_URL') or os.environ.get('REDIS_URL')
+            if redis_url and (not celery_app.conf.broker_url or str(celery_app.conf.broker_url) == 'None'):
+                celery_app.conf.update({
+                    'broker_url': redis_url,
+                    'result_backend': redis_url,
+                    'task_serializer': 'json',
+                    'timezone': 'America/Sao_Paulo',
+                    'enable_utc': True
+                })
             
             # Tentar verificar se o Redis está acessível
             try:
@@ -726,6 +738,92 @@ class ScrapingTestCeleryFix(Resource):
             }
         
         return test_result
+
+@scraping_ns.route('/force-celery-config')
+class ScrapingForceCeleryConfig(Resource):
+    @scraping_ns.doc('force_celery_config')
+    def post(self):
+        """Força a reconfiguração do Celery em tempo de execução"""
+        import os
+        from flask import current_app
+        
+        result = {
+            'timestamp': datetime.now().isoformat(),
+            'before': {},
+            'process': {},
+            'after': {},
+            'status': 'unknown'
+        }
+        
+        try:
+            from celery import current_app as celery_app
+            
+            # BEFORE: Estado atual
+            result['before'] = {
+                'broker_url': str(celery_app.conf.broker_url) if celery_app.conf.broker_url else None,
+                'result_backend': str(celery_app.conf.result_backend) if celery_app.conf.result_backend else None,
+                'task_serializer': celery_app.conf.task_serializer,
+                'timezone': celery_app.conf.timezone
+            }
+            
+            # PROCESS: Obter Redis URL e forçar reconfiguração
+            redis_url = current_app.config.get('REDIS_URL') or os.environ.get('REDIS_URL')
+            
+            if redis_url:
+                result['process']['redis_url_found'] = True
+                result['process']['redis_url_source'] = 'app.config' if current_app.config.get('REDIS_URL') else 'os.environ'
+                
+                # FORÇA CONFIGURAÇÃO COMPLETA
+                celery_app.conf.update({
+                    'broker_url': redis_url,
+                    'result_backend': redis_url,
+                    'task_serializer': 'json',
+                    'accept_content': ['json'],
+                    'result_serializer': 'json',
+                    'timezone': 'America/Sao_Paulo',
+                    'enable_utc': True,
+                    'broker_connection_retry_on_startup': True,
+                    'worker_disable_rate_limits': True,
+                    'task_acks_late': True,
+                    'worker_prefetch_multiplier': 1
+                })
+                
+                result['process']['config_applied'] = True
+                result['process']['redis_url_masked'] = redis_url[:20] + '***'
+                
+            else:
+                result['process']['redis_url_found'] = False
+                result['process']['error'] = 'REDIS_URL não encontrada'
+            
+            # AFTER: Estado após reconfiguração
+            result['after'] = {
+                'broker_url': str(celery_app.conf.broker_url) if celery_app.conf.broker_url else None,
+                'result_backend': str(celery_app.conf.result_backend) if celery_app.conf.result_backend else None,
+                'task_serializer': celery_app.conf.task_serializer,
+                'timezone': celery_app.conf.timezone
+            }
+            
+            # STATUS FINAL
+            if (result['after']['broker_url'] and 
+                result['after']['result_backend'] and 
+                result['after']['broker_url'] != 'None' and 
+                result['after']['result_backend'] != 'None'):
+                result['status'] = 'success'
+            else:
+                result['status'] = 'failed'
+                
+            # TESTE DE CONEXÃO
+            try:
+                celery_app.control.inspect().ping()
+                result['connection_test'] = 'success'
+            except Exception as e:
+                result['connection_test'] = f'failed: {str(e)}'
+                
+        except Exception as e:
+            result['status'] = 'error'
+            result['error'] = str(e)
+        
+        return result
 
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
