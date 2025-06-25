@@ -120,13 +120,16 @@ jobs:
           cd /var/www/juscash
           
           # Backup da versão atual
-          echo "💾 Fazendo backup..."
-          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_$(date +%Y%m%d_%H%M%S).sql || echo "⚠️ Backup falhou"
+          echo "💾 Fazendo backup (se banco disponível)..."
+          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou - continuando deploy..."
           
           # Pull das mudanças
           echo "📥 Atualizando código..."
+          git stash || true
+          git clean -fd
           git fetch origin
           git reset --hard origin/master
+          echo "✅ Código atualizado para: $(git log --oneline -1)"
           
           # Parar containers
           echo "⏹️ Parando containers..."
