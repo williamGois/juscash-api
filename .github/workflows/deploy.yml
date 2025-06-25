@@ -123,13 +123,19 @@ jobs:
           echo "💾 Fazendo backup (se banco disponível)..."
           docker-compose exec -T db pg_dump -U juscash juscash_db > backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou - continuando deploy..."
           
-          # Pull das mudanças
+          # Pull das mudanças com limpeza forçada
           echo "📥 Atualizando código..."
-          git stash || true
+          echo "🗑️ Limpeza forçada completa..."
+          git stash drop || true
+          git checkout -- .
           git clean -fd
           git fetch origin
           git reset --hard origin/master
           echo "✅ Código atualizado para: $(git log --oneline -1)"
+          
+          # Corrigir permissões após reset
+          echo "🔒 Corrigindo permissões..."
+          chmod +x docker-entrypoint.sh
           
           # Parar containers (tolerante a falhas)
           echo "⏹️ Parando containers..."
