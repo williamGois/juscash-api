@@ -4,6 +4,7 @@ from flask_migrate import Migrate
 from flask_restx import Api
 from celery import Celery
 from config import config
+import os
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -33,12 +34,20 @@ def create_app(config_name='default'):
     return app
 
 def make_celery(app):
+    # Garantir que a REDIS_URL seja corretamente configurada
+    redis_url = app.config.get('REDIS_URL') or os.environ.get('REDIS_URL')
+    
+    if not redis_url:
+        # Fallback para localhost se não houver Redis configurado
+        redis_url = 'redis://localhost:6379/0'
+    
     celery = Celery(
         app.import_name,
-        backend=app.config['REDIS_URL'],
-        broker=app.config['REDIS_URL']
+        backend=redis_url,
+        broker=redis_url
     )
     
+    # Configuração robusta para Railway
     celery.conf.update(
         task_serializer='json',
         accept_content=['json'],
@@ -49,6 +58,19 @@ def make_celery(app):
         worker_disable_rate_limits=True,
         task_acks_late=True,
         worker_prefetch_multiplier=1,
+        # Configurações específicas para Railway
+        broker_url=redis_url,
+        result_backend=redis_url,
+        broker_transport_options={
+            'retry_on_timeout': True,
+            'socket_connect_timeout': 30,
+            'socket_timeout': 30,
+        },
+        result_backend_transport_options={
+            'retry_on_timeout': True,
+            'socket_connect_timeout': 30,
+            'socket_timeout': 30,
+        }
     )
     
     class ContextTask(celery.Task):

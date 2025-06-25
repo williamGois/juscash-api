@@ -433,9 +433,40 @@ class ScrapingHealth(Resource):
         # Verificar Redis/Celery
         try:
             from celery import current_app as celery_app
-            celery_app.control.inspect().ping()
-            health_status['services']['redis'] = 'available'
-            health_status['services']['celery'] = 'available'
+            
+            # Primeiro, verificar se o Celery tem as configurações corretas
+            broker_url = celery_app.conf.broker_url
+            result_backend = celery_app.conf.result_backend
+            
+            if not broker_url or str(broker_url) == 'None':
+                health_status['services']['celery'] = 'misconfigured'
+                health_status['services']['celery_error'] = 'broker_url not configured'
+            else:
+                # Tentar ping no Celery
+                try:
+                    inspect = celery_app.control.inspect()
+                    result = inspect.ping()
+                    
+                    if result:
+                        health_status['services']['celery'] = 'available'
+                        health_status['services']['redis'] = 'available'
+                    else:
+                        health_status['services']['celery'] = 'no_workers'
+                        health_status['services']['redis'] = 'available_no_workers'
+                except Exception as celery_error:
+                    # Se o ping falhou, testar Redis diretamente
+                    try:
+                        import redis
+                        redis_client = redis.from_url(str(broker_url), socket_connect_timeout=5)
+                        redis_client.ping()
+                        health_status['services']['redis'] = 'available'
+                        health_status['services']['celery'] = 'unavailable'
+                        health_status['services']['celery_error'] = str(celery_error)
+                    except Exception as redis_error:
+                        health_status['services']['redis'] = 'unavailable'
+                        health_status['services']['celery'] = 'unavailable'
+                        health_status['services']['redis_error'] = str(redis_error)
+                        
         except Exception as e:
             health_status['services']['redis'] = 'unavailable'
             health_status['services']['celery'] = 'unavailable'
