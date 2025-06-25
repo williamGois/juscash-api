@@ -477,6 +477,103 @@ class ScrapingHealth(Resource):
         
         return health_status
 
+@scraping_ns.route('/debug')
+class ScrapingDebug(Resource):
+    @scraping_ns.doc('scraping_debug_info')
+    def get(self):
+        """Debug das configurações de Redis e Celery"""
+        import os
+        from flask import current_app
+        
+        debug_info = {
+            'timestamp': datetime.now().isoformat(),
+            'environment': os.environ.get('RAILWAY_ENVIRONMENT', 'local'),
+            'config_used': current_app.config.get('ENV', 'unknown'),
+            'redis_config': {},
+            'celery_config': {},
+            'environment_vars': {}
+        }
+        
+        # Verificar configurações do Redis
+        redis_url = current_app.config.get('REDIS_URL')
+        debug_info['redis_config'] = {
+            'REDIS_URL': redis_url,
+            'url_masked': redis_url[:10] + '***' + redis_url[-10:] if redis_url and len(redis_url) > 20 else redis_url
+        }
+        
+        # Verificar variáveis de ambiente relacionadas ao Redis
+        redis_env_vars = [
+            'REDIS_URL', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD',
+            'REDISHOST', 'REDISPORT', 'REDISUSER', 'REDISPASSWORD'
+        ]
+        
+        for var in redis_env_vars:
+            value = os.environ.get(var)
+            if value:
+                debug_info['environment_vars'][var] = value[:10] + '***' + value[-5:] if len(value) > 15 else value
+            else:
+                debug_info['environment_vars'][var] = None
+        
+        # Testar conexão Redis diretamente
+        try:
+            import redis
+            
+            # Tentar diferentes formatos de URL
+            test_urls = []
+            
+            if redis_url:
+                test_urls.append(('REDIS_URL', redis_url))
+            
+            # Tentar construir URL a partir de variáveis individuais
+            redis_host = os.environ.get('REDISHOST') or os.environ.get('REDIS_HOST')
+            redis_port = os.environ.get('REDISPORT') or os.environ.get('REDIS_PORT', '6379')
+            redis_password = os.environ.get('REDISPASSWORD') or os.environ.get('REDIS_PASSWORD')
+            
+            if redis_host:
+                if redis_password:
+                    constructed_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/0"
+                else:
+                    constructed_url = f"redis://{redis_host}:{redis_port}/0"
+                test_urls.append(('Constructed', constructed_url))
+            
+            debug_info['redis_tests'] = []
+            
+            for name, url in test_urls:
+                try:
+                    r = redis.from_url(url, socket_connect_timeout=5, socket_timeout=5)
+                    r.ping()
+                    debug_info['redis_tests'].append({
+                        'name': name,
+                        'url_masked': url[:15] + '***' + url[-10:] if len(url) > 25 else url,
+                        'status': 'success'
+                    })
+                except Exception as e:
+                    debug_info['redis_tests'].append({
+                        'name': name,
+                        'url_masked': url[:15] + '***' + url[-10:] if len(url) > 25 else url,
+                        'status': 'failed',
+                        'error': str(e)
+                    })
+        
+        except ImportError:
+            debug_info['redis_tests'] = [{'error': 'redis library not available'}]
+        except Exception as e:
+            debug_info['redis_tests'] = [{'error': f'Unexpected error: {str(e)}'}]
+        
+        # Verificar configuração do Celery
+        try:
+            from celery import current_app as celery_app
+            debug_info['celery_config'] = {
+                'broker_url': str(celery_app.conf.broker_url)[:20] + '***' if celery_app.conf.broker_url else None,
+                'result_backend': str(celery_app.conf.result_backend)[:20] + '***' if celery_app.conf.result_backend else None,
+                'task_serializer': celery_app.conf.task_serializer,
+                'timezone': celery_app.conf.timezone
+            }
+        except Exception as e:
+            debug_info['celery_config'] = {'error': str(e)}
+        
+        return debug_info
+
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
     from .cron_routes import cron_ns
