@@ -255,17 +255,92 @@ class ScrapingExtract(Resource):
         if data_inicio > data_fim:
             scraping_ns.abort(400, 'Data de início deve ser anterior à data fim')
         
-        from celery import current_app as celery_app
-        task = celery_app.send_task(
-            'app.tasks.scraping_tasks.extract_publicacoes_task',
-            args=[data_inicio.isoformat(), data_fim.isoformat()]
-        )
-        
-        return {
-            'task_id': task.id,
-            'status': 'Em processamento',
-            'message': 'Extração de publicações iniciada em background'
-        }
+        try:
+            from celery import current_app as celery_app
+            
+            # Tentar verificar se o Redis está acessível
+            try:
+                celery_app.control.inspect().ping()
+                redis_available = True
+            except Exception:
+                redis_available = False
+            
+            if redis_available:
+                # Usar Celery se Redis estiver disponível
+                task = celery_app.send_task(
+                    'app.tasks.scraping_tasks.extract_publicacoes_task',
+                    args=[data_inicio.isoformat(), data_fim.isoformat()]
+                )
+                
+                return {
+                    'task_id': task.id,
+                    'status': 'Em processamento (async)',
+                    'message': 'Extração de publicações iniciada em background via Celery'
+                }
+            else:
+                # Fallback: execução síncrona se Redis não estiver disponível
+                from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+                from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+                from app.infrastructure.scraping.dje_scraper import DJEScraper
+                
+                repository = SQLAlchemyPublicacaoRepository()
+                scraper = DJEScraper()
+                use_case = ExtractPublicacoesUseCase(repository, scraper)
+                
+                # Execução síncrona
+                publicacoes = use_case.execute(data_inicio, data_fim)
+                scraper.close()
+                
+                # Gerar um task_id fake para compatibilidade
+                import uuid
+                fake_task_id = str(uuid.uuid4())
+                
+                return {
+                    'task_id': fake_task_id,
+                    'status': 'Concluído (sync)',
+                    'message': f'Extração concluída: {len(publicacoes)} publicações extraídas',
+                    'result': {
+                        'total_extraidas': len(publicacoes),
+                        'data_inicio': data_inicio.isoformat(),
+                        'data_fim': data_fim.isoformat(),
+                        'status': 'concluido'
+                    }
+                }
+                
+        except Exception as e:
+            # Em caso de erro geral, tentar fallback síncrono
+            try:
+                from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+                from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+                from app.infrastructure.scraping.dje_scraper import DJEScraper
+                
+                repository = SQLAlchemyPublicacaoRepository()
+                scraper = DJEScraper()
+                use_case = ExtractPublicacoesUseCase(repository, scraper)
+                
+                publicacoes = use_case.execute(data_inicio, data_fim)
+                scraper.close()
+                
+                import uuid
+                fake_task_id = str(uuid.uuid4())
+                
+                return {
+                    'task_id': fake_task_id,
+                    'status': 'Concluído (fallback)',
+                    'message': f'Redis indisponível. Execução síncrona: {len(publicacoes)} publicações extraídas',
+                    'result': {
+                        'total_extraidas': len(publicacoes),
+                        'data_inicio': data_inicio.isoformat(),
+                        'data_fim': data_fim.isoformat(),
+                        'status': 'concluido'
+                    }
+                }
+            except Exception as fallback_error:
+                return {
+                    'task_id': None,
+                    'status': 'Erro',
+                    'message': f'Erro na execução: {str(fallback_error)}'
+                }, 500
 
 task_status_model = scraping_ns.model('TaskStatus', {
     'state': fields.String(description='Estado da tarefa'),
@@ -284,8 +359,31 @@ class ScrapingStatus(Resource):
     def get(self, task_id):
         """Verifica o status de uma tarefa de scraping"""
         try:
+            # Verificar se é um UUID fake (execução síncrona)
+            if len(task_id) == 36 and task_id.count('-') == 4:
+                # Task executada sincronamente, retornar status de sucesso
+                return {
+                    'state': 'SUCCESS',
+                    'status': 'Tarefa executada sincronamente',
+                    'result': 'Consulte a resposta original da requisição para detalhes'
+                }
+            
             from celery import current_app as celery_app
             from celery.result import AsyncResult
+            
+            # Verificar se o Redis está disponível
+            try:
+                celery_app.control.inspect().ping()
+                redis_available = True
+            except Exception:
+                redis_available = False
+            
+            if not redis_available:
+                return {
+                    'state': 'UNAVAILABLE',
+                    'status': 'Redis indisponível',
+                    'error': 'Serviço de monitoramento de tasks não disponível'
+                }
             
             task = AsyncResult(task_id, app=celery_app)
             
@@ -321,6 +419,63 @@ class ScrapingStatus(Resource):
                 'status': 'Erro ao verificar status',
                 'error': f'Erro interno: {str(e)}'
             }, 500
+
+@scraping_ns.route('/health')
+class ScrapingHealth(Resource):
+    @scraping_ns.doc('scraping_health_check')
+    def get(self):
+        """Verifica o status dos serviços de scraping"""
+        health_status = {
+            'timestamp': datetime.now().isoformat(),
+            'services': {}
+        }
+        
+        # Verificar Redis/Celery
+        try:
+            from celery import current_app as celery_app
+            celery_app.control.inspect().ping()
+            health_status['services']['redis'] = 'available'
+            health_status['services']['celery'] = 'available'
+        except Exception as e:
+            health_status['services']['redis'] = 'unavailable'
+            health_status['services']['celery'] = 'unavailable'
+            health_status['services']['redis_error'] = str(e)
+        
+        # Verificar banco de dados
+        try:
+            from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+            repository = SQLAlchemyPublicacaoRepository()
+            test_publicacoes = repository.find_all(limit=1)
+            health_status['services']['database'] = 'available'
+        except Exception as e:
+            health_status['services']['database'] = 'unavailable'
+            health_status['services']['database_error'] = str(e)
+        
+        # Verificar Selenium
+        try:
+            from app.infrastructure.scraping.dje_scraper import DJEScraper
+            scraper = DJEScraper()
+            scraper.close()
+            health_status['services']['selenium'] = 'available'
+        except Exception as e:
+            health_status['services']['selenium'] = 'unavailable'
+            health_status['services']['selenium_error'] = str(e)
+        
+        # Determinar status geral
+        available_services = [v for v in health_status['services'].values() if v == 'available']
+        total_services = len([k for k in health_status['services'].keys() if not k.endswith('_error')])
+        
+        if len(available_services) == total_services:
+            health_status['overall_status'] = 'healthy'
+            health_status['mode'] = 'full_async'
+        elif 'database' in [k for k, v in health_status['services'].items() if v == 'available']:
+            health_status['overall_status'] = 'degraded'
+            health_status['mode'] = 'sync_fallback'
+        else:
+            health_status['overall_status'] = 'unhealthy'
+            health_status['mode'] = 'unavailable'
+        
+        return health_status
 
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
