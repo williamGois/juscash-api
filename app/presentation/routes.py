@@ -34,6 +34,53 @@ stats_model = publicacoes_ns.model('PublicacoesStats', {
     'total': fields.Integer(description='Total de publicações')
 })
 
+@publicacoes_ns.route('/setup-database')
+class SetupDatabase(Resource):
+    @publicacoes_ns.doc('setup_database')
+    def get(self):
+        """ENDPOINT ESPECIAL: Força criação da tabela publicacoes"""
+        try:
+            from app import db
+            from app.infrastructure.database.models import PublicacaoModel
+            
+            # Verificar tabelas antes
+            inspector = db.inspect(db.engine)
+            tables_before = inspector.get_table_names()
+            
+            # Forçar criação
+            db.create_all()
+            
+            # Verificar depois
+            tables_after = db.inspect(db.engine).get_table_names()
+            
+            # Testar se funciona
+            if 'publicacoes' in tables_after:
+                # Fazer uma query de teste
+                result = db.session.execute(db.text('SELECT COUNT(*) FROM publicacoes'))
+                count = result.scalar()
+                
+                return {
+                    'success': True,
+                    'message': 'Tabela publicacoes criada com sucesso!',
+                    'tables_before': tables_before,
+                    'tables_after': tables_after,
+                    'publicacoes_count': count
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': 'Falha ao criar tabela publicacoes',
+                    'tables_before': tables_before,
+                    'tables_after': tables_after
+                }, 500
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'message': f'Erro ao configurar banco: {str(e)}'
+            }, 500
+
 @publicacoes_ns.route('/')
 class PublicacoesList(Resource):
     @publicacoes_ns.doc('list_publicacoes')
@@ -85,16 +132,29 @@ class PublicacoesStats(Resource):
     @publicacoes_ns.marshal_with(stats_model)
     def get(self):
         """Obtém estatísticas das publicações por status"""
-        repository = SQLAlchemyPublicacaoRepository()
-        stats = repository.count_by_status()
-        
-        total = sum(stats.values())
-        return {
-            'nova': stats.get('nova', 0),
-            'lida': stats.get('lida', 0),
-            'processada': stats.get('processada', 0),
-            'total': total
-        }
+        try:
+            repository = SQLAlchemyPublicacaoRepository()
+            stats = repository.count_by_status()
+            
+            total = sum(stats.values())
+            return {
+                'nova': stats.get('nova', 0),
+                'lida': stats.get('lida', 0),
+                'processada': stats.get('processada', 0),
+                'total': total
+            }
+        except Exception as e:
+            # Se tabela não existe, retornar zeros
+            if "does not exist" in str(e):
+                return {
+                    'nova': 0,
+                    'lida': 0,
+                    'processada': 0,
+                    'total': 0,
+                    'warning': 'Tabela publicacoes não existe. Use /api/publicacoes/setup-database'
+                }
+            else:
+                raise e
 
 @publicacoes_ns.route('/<int:id>')
 @publicacoes_ns.param('id', 'ID da publicação')
