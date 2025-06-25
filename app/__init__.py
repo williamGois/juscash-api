@@ -7,7 +7,6 @@ from config import config
 
 db = SQLAlchemy()
 migrate = Migrate()
-celery = Celery(__name__)
 
 def create_app(config_name='default'):
     app = Flask(__name__)
@@ -18,16 +17,6 @@ def create_app(config_name='default'):
     
     # Importar modelos para que o Flask-Migrate os reconheça
     from app.infrastructure.database.models import PublicacaoModel
-    
-    celery.conf.update(
-        broker_url=app.config['REDIS_URL'],
-        result_backend=app.config['REDIS_URL'],
-        task_serializer='json',
-        accept_content=['json'],
-        result_serializer='json',
-        timezone='America/Sao_Paulo',
-        enable_utc=True,
-    )
     
     api = Api(
         app,
@@ -49,5 +38,23 @@ def make_celery(app):
         backend=app.config['REDIS_URL'],
         broker=app.config['REDIS_URL']
     )
-    celery.conf.update(app.config)
+    
+    celery.conf.update(
+        task_serializer='json',
+        accept_content=['json'],
+        result_serializer='json',
+        timezone='America/Sao_Paulo',
+        enable_utc=True,
+        broker_connection_retry_on_startup=True,
+        worker_disable_rate_limits=True,
+        task_acks_late=True,
+        worker_prefetch_multiplier=1,
+    )
+    
+    class ContextTask(celery.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+    
+    celery.Task = ContextTask
     return celery 

@@ -255,7 +255,11 @@ class ScrapingExtract(Resource):
         if data_inicio > data_fim:
             scraping_ns.abort(400, 'Data de início deve ser anterior à data fim')
         
-        task = extract_publicacoes_task.delay(data_inicio.isoformat(), data_fim.isoformat())
+        from celery import current_app as celery_app
+        task = celery_app.send_task(
+            'app.tasks.scraping_tasks.extract_publicacoes_task',
+            args=[data_inicio.isoformat(), data_fim.isoformat()]
+        )
         
         return {
             'task_id': task.id,
@@ -279,36 +283,44 @@ class ScrapingStatus(Resource):
     @scraping_ns.marshal_with(task_status_model)
     def get(self, task_id):
         """Verifica o status de uma tarefa de scraping"""
-        from celery.result import AsyncResult
-        
-        task = AsyncResult(task_id)
-        
-        if task.state == 'PENDING':
-            response = {
-                'state': task.state,
-                'status': 'Pendente'
-            }
-        elif task.state == 'PROGRESS':
-            response = {
-                'state': task.state,
-                'status': 'Em progresso',
-                'current': task.info.get('current', 0),
-                'total': task.info.get('total', 1)
-            }
-        elif task.state == 'SUCCESS':
-            response = {
-                'state': task.state,
-                'status': 'Concluído',
-                'result': task.result
-            }
-        else:
-            response = {
-                'state': task.state,
-                'status': 'Erro',
-                'error': str(task.info)
-            }
-        
-        return response
+        try:
+            from celery import current_app as celery_app
+            from celery.result import AsyncResult
+            
+            task = AsyncResult(task_id, app=celery_app)
+            
+            if task.state == 'PENDING':
+                response = {
+                    'state': task.state,
+                    'status': 'Pendente'
+                }
+            elif task.state == 'PROGRESS':
+                response = {
+                    'state': task.state,
+                    'status': 'Em progresso',
+                    'current': task.info.get('current', 0) if task.info else 0,
+                    'total': task.info.get('total', 1) if task.info else 1
+                }
+            elif task.state == 'SUCCESS':
+                response = {
+                    'state': task.state,
+                    'status': 'Concluído',
+                    'result': task.result
+                }
+            else:
+                response = {
+                    'state': task.state,
+                    'status': 'Erro',
+                    'error': str(task.info) if task.info else 'Erro desconhecido'
+                }
+            
+            return response
+        except Exception as e:
+            return {
+                'state': 'ERROR',
+                'status': 'Erro ao verificar status',
+                'error': f'Erro interno: {str(e)}'
+            }, 500
 
 def register_namespaces(api):
     """Registra todos os namespaces na API"""

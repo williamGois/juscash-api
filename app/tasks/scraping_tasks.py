@@ -1,15 +1,15 @@
 from datetime import datetime
 from celery import current_task
-from app import celery, create_app
-from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
-from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
-from app.infrastructure.scraping.dje_scraper import DJEScraper
+from app import create_app
 
-@celery.task(bind=True)
-def extract_publicacoes_task(self, data_inicio_str: str, data_fim_str: str):
+def extract_publicacoes_task(data_inicio_str: str, data_fim_str: str):
     try:
         app = create_app()
         with app.app_context():
+            from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+            from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+            from app.infrastructure.scraping.dje_scraper import DJEScraper
+            
             data_inicio = datetime.fromisoformat(data_inicio_str)
             data_fim = datetime.fromisoformat(data_fim_str)
             
@@ -17,7 +17,8 @@ def extract_publicacoes_task(self, data_inicio_str: str, data_fim_str: str):
             scraper = DJEScraper()
             use_case = ExtractPublicacoesUseCase(repository, scraper)
             
-            current_task.update_state(state='PROGRESS', meta={'current': 0, 'total': 100})
+            if current_task:
+                current_task.update_state(state='PROGRESS', meta={'current': 0, 'total': 100})
             
             publicacoes = use_case.execute(data_inicio, data_fim)
             
@@ -31,13 +32,13 @@ def extract_publicacoes_task(self, data_inicio_str: str, data_fim_str: str):
             }
             
     except Exception as e:
-        current_task.update_state(
-            state='FAILURE',
-            meta={'error': str(e)}
-        )
+        if current_task:
+            current_task.update_state(
+                state='FAILURE',
+                meta={'error': str(e)}
+            )
         raise e
 
-@celery.task
 def extract_daily_publicacoes():
     """Extrai publicações do dia anterior automaticamente"""
     app = create_app()
@@ -47,12 +48,15 @@ def extract_daily_publicacoes():
         
         logger = logging.getLogger(__name__)
         
-        # Verificar se scraping está habilitado
         if not app.config.get('SCRAPING_ENABLED', True):
             logger.info("Scraping desabilitado via configuração")
             return "Scraping desabilitado"
         
         try:
+            from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+            from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+            from app.infrastructure.scraping.dje_scraper import DJEScraper
+            
             ontem = date.today() - timedelta(days=1)
             data_inicio = datetime.combine(ontem, datetime.min.time())
             data_fim = datetime.combine(ontem, datetime.max.time())
@@ -74,7 +78,6 @@ def extract_daily_publicacoes():
             logger.error(f"Erro na raspagem diária: {str(e)}")
             raise e
 
-@celery.task 
 def extract_full_period_publicacoes():
     """Extrai publicações do período completo (01/10/2024 a 29/11/2024) semanalmente"""
     app = create_app()
@@ -88,7 +91,10 @@ def extract_full_period_publicacoes():
             return "Scraping desabilitado"
         
         try:
-            # Período completo especificado no projeto
+            from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+            from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+            from app.infrastructure.scraping.dje_scraper import DJEScraper
+            
             data_inicio = datetime(2024, 10, 1)
             data_fim = datetime(2024, 11, 29, 23, 59, 59)
             
@@ -109,7 +115,6 @@ def extract_full_period_publicacoes():
             logger.error(f"Erro na raspagem completa: {str(e)}")
             raise e
 
-@celery.task
 def extract_custom_period_publicacoes(data_inicio_str: str, data_fim_str: str):
     """Extrai publicações de um período customizado via cron"""
     app = create_app()
@@ -119,6 +124,10 @@ def extract_custom_period_publicacoes(data_inicio_str: str, data_fim_str: str):
         logger = logging.getLogger(__name__)
         
         try:
+            from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+            from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+            from app.infrastructure.scraping.dje_scraper import DJEScraper
+            
             data_inicio = datetime.fromisoformat(data_inicio_str)
             data_fim = datetime.fromisoformat(data_fim_str)
             
