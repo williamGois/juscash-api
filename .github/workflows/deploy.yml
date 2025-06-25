@@ -181,26 +181,4 @@ jobs:
           echo "❌ Deploy falhou!"
         fi
 
-  notify:
-    name: 📢 Notificações
-    runs-on: ubuntu-latest
-    needs: [test, deploy]
-    if: always()
-    
-    steps:
-    - name: 📱 Discord Notification
-      if: always()
-      uses: Ilshidur/action-discord@master
-      env:
-        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-      with:
-        args: |
-          🚀 **Deploy JusCash API**
-          
-          **Status**: ${{ needs.deploy.result == 'success' && '✅ Sucesso' || '❌ Falha' }}
-          **Commit**: `${{ github.sha }}`
-          **Branch**: `${{ github.ref_name }}`
-          **URL**: https://cron.juscash.app
-          
-          **Testes**: ${{ needs.test.result == 'success' && '✅' || '❌' }}
-          **Deploy**: ${{ needs.deploy.result == 'success' && '✅' || '❌' }} 
+# Notificações removidas - Discord não será usado 
