@@ -44,6 +44,50 @@ def check_dependencies():
     print("✅ Todas as dependências encontradas!")
     return True
 
+def create_basic_table_only(db):
+    """Criar apenas a tabela básica sem índices avançados"""
+    print("🔧 Criando tabela básica (sem extensões PostgreSQL)...")
+    
+    try:
+        # Criar apenas a estrutura básica da tabela
+        from sqlalchemy import text
+        
+        db.session.execute(text('''
+            CREATE TABLE IF NOT EXISTS publicacoes (
+                id SERIAL PRIMARY KEY,
+                uuid UUID DEFAULT gen_random_uuid(),
+                numero_processo VARCHAR(50) NOT NULL UNIQUE,
+                data_disponibilizacao TIMESTAMP NOT NULL,
+                autores TEXT NOT NULL,
+                advogados TEXT NOT NULL,
+                conteudo_completo TEXT NOT NULL,
+                valor_principal_bruto NUMERIC(12,2),
+                valor_principal_liquido NUMERIC(12,2),
+                valor_juros_moratorios NUMERIC(12,2),
+                honorarios_advocaticios NUMERIC(12,2),
+                reu VARCHAR(255) NOT NULL DEFAULT 'Instituto Nacional do Seguro Social - INSS',
+                status VARCHAR(20) NOT NULL DEFAULT 'nova',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT chk_status CHECK (status IN ('nova', 'lida', 'processada'))
+            )
+        '''))
+        
+        # Criar apenas índices básicos (sem GIN)
+        db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_numero_processo ON publicacoes(numero_processo)'))
+        db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_data_disponibilizacao ON publicacoes(data_disponibilizacao)'))
+        db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_status ON publicacoes(status)'))
+        db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_reu ON publicacoes(reu)'))
+        
+        db.session.commit()
+        print("✅ Tabela básica criada com sucesso!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Erro ao criar tabela básica: {e}")
+        db.session.rollback()
+        return False
+
 def main():
     """Iniciar aplicação de forma direta"""
     print("=" * 60)
@@ -84,7 +128,7 @@ def main():
         print(f"❌ Erro ao criar aplicação: {app_error}")
         sys.exit(1)
     
-    # Configurar banco (sem Flask-Migrate)
+    # Configurar banco (MODO SIMPLES - sem extensões PostgreSQL)
     with app.app_context():
         try:
             print("🔧 Configurando banco de dados...")
@@ -95,10 +139,6 @@ def main():
                 print(f"✅ DATABASE_URL configurada: {database_url[:50]}...")
             else:
                 print("⚠️ DATABASE_URL não encontrada, usando padrão local")
-            
-            # IMPORTANTE: Importar modelo ANTES de db.create_all()
-            from app.infrastructure.database.models import PublicacaoModel
-            print("📋 Modelo PublicacaoModel importado")
             
             # Teste de conexão
             print("🔍 Testando conexão PostgreSQL...")
@@ -113,15 +153,31 @@ def main():
             print(f"📊 Tabelas existentes: {len(tables)} - {tables}")
             
             if 'publicacoes' not in tables:
-                print("🔧 Tabela publicacoes não encontrada, criando...")
-                db.create_all()
+                print("🔧 Tabela publicacoes não encontrada...")
                 
-                # Verificar se foi criada
-                tables_after = db.inspect(db.engine).get_table_names()
-                if 'publicacoes' in tables_after:
-                    print("✅ Tabela publicacoes criada com sucesso!")
-                else:
-                    print("❌ Falha ao criar tabela publicacoes")
+                # Tentar usar create_all primeiro (mais simples)
+                try:
+                    print("📋 Importando modelo SQLAlchemy...")
+                    from app.infrastructure.database.models import PublicacaoModel
+                    
+                    print("🔧 Tentando criar com SQLAlchemy...")
+                    db.create_all()
+                    
+                    # Verificar se foi criada
+                    tables_after = db.inspect(db.engine).get_table_names()
+                    if 'publicacoes' in tables_after:
+                        print("✅ Tabela criada com SQLAlchemy!")
+                    else:
+                        raise Exception("Tabela não foi criada")
+                        
+                except Exception as sqlalchemy_error:
+                    print(f"⚠️ SQLAlchemy falhou: {sqlalchemy_error}")
+                    print("🔄 Tentando método SQL direto...")
+                    
+                    # Fallback: criar tabela com SQL direto
+                    if not create_basic_table_only(db):
+                        print("❌ Falha ao criar tabela básica")
+                        sys.exit(1)
                     
             else:
                 print("✅ Tabela publicacoes já existe!")
@@ -140,8 +196,20 @@ def main():
             print(f"🔍 Tipo do erro: {type(db_error).__name__}")
             
             # Verificar se é erro crítico ou pode continuar
-            if "does not exist" in str(db_error).lower() or "connection" in str(db_error).lower():
-                print("❌ Erro crítico de banco, não pode continuar")
+            if "does not exist" in str(db_error).lower() and "operator class" in str(db_error).lower():
+                print("⚠️ Erro de extensão PostgreSQL - usando tabela básica")
+                # Tentar criar tabela básica mesmo assim
+                try:
+                    if create_basic_table_only(db):
+                        print("✅ Tabela básica criada, continuando...")
+                    else:
+                        print("❌ Não foi possível criar nem tabela básica")
+                        sys.exit(1)
+                except:
+                    print("❌ Erro crítico, não pode continuar")
+                    sys.exit(1)
+            elif "connection" in str(db_error).lower():
+                print("❌ Erro crítico de conexão, não pode continuar")
                 sys.exit(1)
             else:
                 print("⚠️ Erro não crítico, continuando...")
@@ -149,6 +217,7 @@ def main():
     print(f"🌐 Iniciando servidor Flask na porta {port}")
     print("📚 Documentação Swagger disponível em: /docs/")
     print("⚡ API JusCash pronta para uso!")
+    print("💡 Para funcionalidades avançadas, execute create-tables.py")
     print("=" * 60)
     
     try:

@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import text
 import uuid
+import os
 
 class PublicacaoModel(db.Model):
     __tablename__ = 'publicacoes'
@@ -23,11 +24,10 @@ class PublicacaoModel(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Apenas índices básicos no modelo - GIN será criado separadamente pelo create-tables.py
     __table_args__ = (
         db.Index('idx_publicacoes_status_data', 'status', 'data_disponibilizacao'),
-        db.Index('idx_publicacoes_conteudo_gin', text('conteudo_completo gin_trgm_ops'), postgresql_using='gin'),
-        db.Index('idx_publicacoes_autores_gin', text('autores gin_trgm_ops'), postgresql_using='gin'),
-        db.Index('idx_publicacoes_advogados_gin', text('advogados gin_trgm_ops'), postgresql_using='gin'),
+        db.CheckConstraint("status IN ('nova', 'lida', 'processada')", name='chk_status'),
     )
     
     def __repr__(self):
