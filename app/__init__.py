@@ -23,7 +23,7 @@ def create_app(config_name='default'):
         app,
         version='1.0',
         title='JusCash API',
-        description='API para web scraping do Diário da Justiça Eletrônico (DJE)',
+        description='API para web scraping do Diário da Justiça Eletrônico v3 (DJE)',
         doc='/docs/',
         prefix='/api'
     )
