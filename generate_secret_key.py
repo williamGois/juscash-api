@@ -25,7 +25,6 @@ def generate_secret_key():
     print("=" * 60)
     print("\n📝 Escolha qualquer uma das opções acima")
     print("⚠️  NUNCA compartilhe esta chave publicamente!")
-    print("🚀 Configure no Railway: Variables → SECRET_KEY")
     
     return key1
 

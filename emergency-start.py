@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Script de EMERGÊNCIA para Railway - Mínimas dependências
+Script de EMERGÊNCIA - Mínimas dependências
 """
 
 import os
@@ -52,7 +52,7 @@ def minimal_app():
             return jsonify({
                 "database": "not_connected", 
                 "status": "emergency",
-                "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'unknown')
+                "environment": os.environ.get('ENVIRONMENT', 'unknown')
             })
         
         port = int(os.environ.get('PORT', 5000))
@@ -73,7 +73,7 @@ def debug_environment():
     important_vars = [
         'DATABASE_URL',
         'REDIS_URL', 
-        'RAILWAY_ENVIRONMENT',
+        'ENVIRONMENT',
         'PORT',
         'SECRET_KEY'
     ]

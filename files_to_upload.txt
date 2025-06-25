@@ -1,0 +1,16 @@
+app/
+migrations/
+tests/
+examples/
+logs/
+*.py
+*.txt
+*.yml
+*.yaml
+*.ini
+*.md
+Dockerfile*
+Procfile*
+docker-compose*
+setup-vps.sh
+generate-env-prod.sh

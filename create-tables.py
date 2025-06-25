@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Script específico para executar migrações no Railway
+Script para executar migrações e configuração do banco de dados
 """
 
 import os
@@ -8,14 +8,12 @@ import sys
 import time
 
 def execute_migrations():
-    """Executa as migrações Flask-Migrate no Railway"""
+    """Executa as migrações Flask-Migrate"""
     print("🔧 Script de Migrações - JusCash API")
     
     try:
-        # Configurar variáveis de ambiente
         os.environ['FLASK_APP'] = 'run.py'
         
-        # Verificar se dependências críticas estão disponíveis
         print("🔍 Verificando dependências...")
         try:
             import flask
@@ -31,7 +29,6 @@ def execute_migrations():
             print(f"❌ SQLAlchemy não encontrado: {e}")
             return False
         
-        # Importar aplicação com tratamento de erro
         try:
             from app import create_app, db
             print("✅ Módulo app importado")
@@ -39,7 +36,6 @@ def execute_migrations():
             print(f"❌ Erro ao importar app: {e}")
             print("🔍 Verificando se todas as dependências estão instaladas...")
             
-            # Tentar identificar qual dependência está faltando
             missing_deps = []
             
             try:
@@ -74,7 +70,6 @@ def execute_migrations():
                     except Exception as install_error:
                         print(f"❌ Erro ao instalar {dep}: {install_error}")
                 
-                # Tentar importar novamente
                 try:
                     from app import create_app, db
                     print("✅ Módulo app importado após instalação")
@@ -84,14 +79,12 @@ def execute_migrations():
             else:
                 return False
         
-        # Criar aplicação
         print("📊 Criando aplicação Flask...")
         app = create_app()
         
         with app.app_context():
             print("🔍 Testando conexão PostgreSQL...")
             
-            # Testar conexão
             try:
                 with db.engine.connect() as conn:
                     result = conn.execute(db.text('SELECT version()'))
@@ -106,24 +99,20 @@ def execute_migrations():
                     print(f"DATABASE_URL: {db_url[:50]}...")
                 return False
             
-            # Verificar tabelas atuais
             inspector = db.inspect(db.engine)
             tables_before = inspector.get_table_names()
             print(f"📊 Tabelas antes: {len(tables_before)} - {tables_before}")
             
-            # Executar migrações
             print("🚀 Executando migrações Flask-Migrate...")
             
             try:
                 from flask_migrate import upgrade
                 
-                # Verificar se diretório migrations existe
                 if not os.path.exists('migrations'):
                     print("📁 Diretório migrations não encontrado, criando...")
                     from flask_migrate import init
                     init()
                 
-                # Executar upgrade das migrações
                 print("⬆️ Aplicando migrações...")
                 upgrade()
                 print("✅ Migrações aplicadas com sucesso!")
@@ -132,22 +121,17 @@ def execute_migrations():
                 print(f"⚠️ Erro nas migrações: {migrate_error}")
                 print("🔄 Tentando método alternativo...")
                 
-                # Método alternativo: executar SQL da migração diretamente
                 try:
-                    # Criar extensões PostgreSQL
                     print("🔧 Criando extensões PostgreSQL...")
                     db.session.execute(db.text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
                     db.session.execute(db.text('CREATE EXTENSION IF NOT EXISTS "pg_trgm"'))
                     
-                    # Importar modelo
                     from app.infrastructure.database.models import PublicacaoModel
                     print("📋 Modelo PublicacaoModel carregado")
                     
-                    # Criar tabelas básicas
                     print("🔧 Criando tabelas...")
                     db.create_all()
                     
-                    # Criar índices avançados
                     print("📊 Criando índices avançados...")
                     db.session.execute(db.text('''
                         CREATE INDEX IF NOT EXISTS idx_publicacoes_conteudo_gin 
@@ -162,7 +146,6 @@ def execute_migrations():
                         ON publicacoes USING gin (advogados gin_trgm_ops)
                     '''))
                     
-                    # Criar função e trigger para updated_at
                     print("⚡ Criando triggers...")
                     db.session.execute(db.text('''
                         CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -190,21 +173,17 @@ def execute_migrations():
                     db.session.rollback()
                     return False
             
-            # Verificar resultado final
             time.sleep(2)
             tables_after = db.inspect(db.engine).get_table_names()
             print(f"📊 Tabelas depois: {len(tables_after)} - {tables_after}")
             
-            # Verificar especificamente a tabela publicacoes
             if 'publicacoes' in tables_after:
                 print("✅ Tabela 'publicacoes' criada com sucesso!")
                 
-                # Testar uma query simples
                 result = db.session.execute(db.text('SELECT COUNT(*) FROM publicacoes'))
                 count = result.scalar()
                 print(f"📝 Registros na tabela: {count}")
                 
-                # Verificar índices
                 indices_result = db.session.execute(db.text('''
                     SELECT indexname FROM pg_indexes 
                     WHERE tablename = 'publicacoes' AND indexname LIKE '%gin%'
@@ -228,7 +207,7 @@ def execute_migrations():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🚀 JusCash API - Configuração de Banco Railway")
+    print("🚀 JusCash API - Configuração de Banco de Dados")
     print("=" * 60)
     
     success = execute_migrations()

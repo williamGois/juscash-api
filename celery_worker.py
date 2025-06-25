@@ -28,7 +28,6 @@ celery.task(cleanup_old_logs, name='app.tasks.maintenance_tasks.cleanup_old_logs
 celery.task(generate_daily_stats, name='app.tasks.maintenance_tasks.generate_daily_stats')
 celery.task(health_check, name='app.tasks.maintenance_tasks.health_check')
 
-# Configurações para Railway/Docker
 celery.conf.update(
     beat_schedule={
         'raspagem_diaria': {

@@ -57,23 +57,21 @@ def db_status():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    is_railway = os.environ.get('RAILWAY_ENVIRONMENT')
+    is_production = os.environ.get('PRODUCTION')
     
     with app.app_context():
         try:
-            # Testar conexão com o banco
             with db.engine.connect() as conn:
                 conn.execute(db.text('SELECT 1'))
             print('🎉 Banco PostgreSQL conectado!')
-            if not is_railway:
+            if not is_production:
                 print('💡 Use "flask upgrade-db" para executar migrações')
         except Exception as e:
             print(f'❌ Erro ao conectar com PostgreSQL: {str(e)}')
-            if not is_railway:
+            if not is_production:
                 print('💡 Certifique-se de que o PostgreSQL está rodando')
     
-    # Configuração para Railway
-    if is_railway:
+    if is_production:
         app.run(host='0.0.0.0', port=port)
     else:
         app.run(debug=True, host='0.0.0.0', port=port) 

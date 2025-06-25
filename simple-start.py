@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Script ultra-simples para Railway - JusCash API
+Script de inicialização simples - JusCash API
 """
 
 import os
@@ -49,7 +49,6 @@ def create_basic_table_only(db):
     print("🔧 Criando tabela básica (sem extensões PostgreSQL)...")
     
     try:
-        # Criar apenas a estrutura básica da tabela
         from sqlalchemy import text
         
         db.session.execute(text('''
@@ -73,7 +72,6 @@ def create_basic_table_only(db):
             )
         '''))
         
-        # Criar apenas índices básicos (sem GIN)
         db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_numero_processo ON publicacoes(numero_processo)'))
         db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_data_disponibilizacao ON publicacoes(data_disponibilizacao)'))
         db.session.execute(text('CREATE INDEX IF NOT EXISTS idx_publicacoes_status ON publicacoes(status)'))
@@ -91,26 +89,22 @@ def create_basic_table_only(db):
 def main():
     """Iniciar aplicação de forma direta"""
     print("=" * 60)
-    print("🚀 JusCash API - Inicialização Simples Railway")
+    print("🚀 JusCash API - Inicialização Simples")
     print("=" * 60)
     
-    # Verificar dependências primeiro
     if not check_dependencies():
         print("❌ Dependências faltando. Saindo...")
         sys.exit(1)
     
-    # Aguardar um pouco para estabilizar
     print("⏳ Aguardando estabilização dos serviços...")
     time.sleep(5)
     
-    # Configurar variáveis
     port = int(os.environ.get('PORT', 5000))
-    railway_env = os.environ.get('RAILWAY_ENVIRONMENT', False)
+    production_env = os.environ.get('PRODUCTION', False)
     
-    print(f"🌐 Ambiente Railway: {railway_env}")
+    print(f"🌐 Ambiente de produção: {production_env}")
     print(f"🚪 Porta configurada: {port}")
     
-    # Importar e criar app
     try:
         print("📦 Importando módulos da aplicação...")
         from app import create_app, db
@@ -128,26 +122,22 @@ def main():
         print(f"❌ Erro ao criar aplicação: {app_error}")
         sys.exit(1)
     
-    # Configurar banco (MODO SIMPLES - sem extensões PostgreSQL)
     with app.app_context():
         try:
             print("🔧 Configurando banco de dados...")
             
-            # Testar variáveis de ambiente
             database_url = os.environ.get('DATABASE_URL')
             if database_url:
                 print(f"✅ DATABASE_URL configurada: {database_url[:50]}...")
             else:
                 print("⚠️ DATABASE_URL não encontrada, usando padrão local")
             
-            # Teste de conexão
             print("🔍 Testando conexão PostgreSQL...")
             with db.engine.connect() as conn:
                 result = conn.execute(db.text('SELECT version()'))
                 version = result.fetchone()[0]
                 print(f"✅ PostgreSQL conectado: {version[:60]}...")
             
-            # Verificar se tabela já existe
             inspector = db.inspect(db.engine)
             tables = inspector.get_table_names()
             print(f"📊 Tabelas existentes: {len(tables)} - {tables}")
@@ -155,7 +145,6 @@ def main():
             if 'publicacoes' not in tables:
                 print("🔧 Tabela publicacoes não encontrada...")
                 
-                # Tentar usar create_all primeiro (mais simples)
                 try:
                     print("📋 Importando modelo SQLAlchemy...")
                     from app.infrastructure.database.models import PublicacaoModel
@@ -163,7 +152,6 @@ def main():
                     print("🔧 Tentando criar com SQLAlchemy...")
                     db.create_all()
                     
-                    # Verificar se foi criada
                     tables_after = db.inspect(db.engine).get_table_names()
                     if 'publicacoes' in tables_after:
                         print("✅ Tabela criada com SQLAlchemy!")
@@ -174,7 +162,6 @@ def main():
                     print(f"⚠️ SQLAlchemy falhou: {sqlalchemy_error}")
                     print("🔄 Tentando método SQL direto...")
                     
-                    # Fallback: criar tabela com SQL direto
                     if not create_basic_table_only(db):
                         print("❌ Falha ao criar tabela básica")
                         sys.exit(1)
@@ -182,7 +169,6 @@ def main():
             else:
                 print("✅ Tabela publicacoes já existe!")
             
-            # Verificar se tabela está acessível
             try:
                 count = db.session.execute(db.text('SELECT COUNT(*) FROM publicacoes')).scalar()
                 print(f"📝 Registros na tabela publicacoes: {count}")
@@ -195,10 +181,8 @@ def main():
             print(f"⚠️ Aviso configuração banco: {db_error}")
             print(f"🔍 Tipo do erro: {type(db_error).__name__}")
             
-            # Verificar se é erro crítico ou pode continuar
             if "does not exist" in str(db_error).lower() and "operator class" in str(db_error).lower():
                 print("⚠️ Erro de extensão PostgreSQL - usando tabela básica")
-                # Tentar criar tabela básica mesmo assim
                 try:
                     if create_basic_table_only(db):
                         print("✅ Tabela básica criada, continuando...")
@@ -221,7 +205,6 @@ def main():
     print("=" * 60)
     
     try:
-        # Iniciar aplicação
         app.run(host='0.0.0.0', port=port, debug=False)
     except Exception as server_error:
         print(f"❌ Erro ao iniciar servidor: {server_error}")

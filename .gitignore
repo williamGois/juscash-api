@@ -88,4 +88,14 @@ app.db
 # migrations/ 
 
 # Ignorar apenas arquivos temporários de migração se necessário
-# migrations/versions/*.pyc 
+# migrations/versions/*.pyc
+
+# CI/CD sensitive files
+cicd-secrets.txt
+ssh-keys/
+**/juscash_cicd*
+*.pem
+*.key
+
+# GitHub Actions cache
+.github/workflows/.cache/ 

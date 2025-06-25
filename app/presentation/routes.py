@@ -530,7 +530,7 @@ class ScrapingDebug(Resource):
         
         debug_info = {
             'timestamp': datetime.now().isoformat(),
-            'environment': os.environ.get('RAILWAY_ENVIRONMENT', 'local'),
+            'environment': os.environ.get('ENVIRONMENT', 'local'),
             'config_used': current_app.config.get('ENV', 'unknown'),
             'redis_config': {},
             'celery_config': {},
@@ -638,7 +638,7 @@ class ScrapingTestCeleryFix(Resource):
         redis_url_env = os.environ.get('REDIS_URL')
         test_result['step1_environment'] = {
             'REDIS_URL_from_env': redis_url_env[:20] + '***' if redis_url_env else None,
-            'RAILWAY_ENVIRONMENT': os.environ.get('RAILWAY_ENVIRONMENT'),
+            'ENVIRONMENT': os.environ.get('ENVIRONMENT'),
             'FLASK_ENV': os.environ.get('FLASK_ENV')
         }
         
@@ -734,7 +734,7 @@ class ScrapingTestCeleryFix(Resource):
             test_result['step5_solution'] = {
                 'status': 'no_redis_url',
                 'redis_available': False,
-                'recommended_action': 'check_railway_redis_service'
+                'recommended_action': 'check_redis_service'
             }
         
         return test_result
