@@ -841,7 +841,7 @@ class SimplePing(Resource):
             'status': 'ok',
             'message': 'API funcionando',
             'timestamp': datetime.now().isoformat(),
-            'version': 'v5.0.0-CI-CD-TEST'
+            'version': 'v6.0.0-CI-CD-WORKING'
         }
 
 def register_namespaces(api):
