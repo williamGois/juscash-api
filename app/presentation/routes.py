@@ -495,7 +495,7 @@ class ScrapingHealth(Resource):
             health_status['services']['database_error'] = str(e)
         
         # Versão do deploy (teste CI/CD)
-        health_status['version'] = 'v1.0.1-cicd-test'
+        health_status['version'] = 'v1.0.2-auto-deploy'
         health_status['deploy_method'] = 'GitHub Actions CI/CD'
         
         # Verificar Selenium
@@ -841,7 +841,7 @@ class SimplePing(Resource):
             'status': 'ok',
             'message': 'API funcionando',
             'timestamp': datetime.now().isoformat(),
-            'version': 'v1.0.1-cicd-test'
+            'version': 'v1.0.2-auto-deploy'
         }
 
 def register_namespaces(api):
