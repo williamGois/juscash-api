@@ -27,11 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Baixar ChromeDriver com fallback
-RUN wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip" && \
-    unzip /tmp/chromedriver.zip -d /tmp/ && \
-    mv /tmp/chromedriver /usr/bin/chromedriver && \
-    chmod +x /usr/bin/chromedriver && \
+# Baixar ChromeDriver compatível com a versão instalada do Chrome
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
+    echo "Chrome major version: $CHROME_VERSION" && \
+    DRIVER_VERSION=$(curl -sS "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}") && \
+    echo "ChromeDriver version: $DRIVER_VERSION" && \
+    wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip" && \
+    unzip /tmp/chromedriver.zip -d /usr/local/bin/ && \
+    chmod +x /usr/local/bin/chromedriver && \
     rm /tmp/chromedriver.zip
 
 WORKDIR /app
