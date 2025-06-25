@@ -139,15 +139,11 @@ jobs:
           
           # Parar containers (tolerante a falhas)
           echo "⏹️ Parando containers..."
-          docker-compose down || echo "⚠️ Erro ao parar containers - continuando..."
+          docker-compose down --remove-orphans || echo "⚠️ Erro ao parar containers - continuando..."
           
-          # Rebuild aplicação
-          echo "🏗️ Rebuilding aplicação..."
-          docker-compose build --no-cache web || { echo "❌ Erro no build - tentando build simples..."; docker-compose build web; }
-          
-          # Iniciar containers (tolerante a falhas)
-          echo "🚀 Iniciando containers..."
-          docker-compose up -d || { echo "❌ Erro no up - tentando restart..."; docker-compose restart; }
+          # Iniciar containers com rebuild forçado
+          echo "🚀 Iniciando e rebuilding containers..."
+          docker-compose up -d --build --force-recreate --remove-orphans || { echo "❌ Erro no up - tentando restart..."; sleep 5; docker-compose restart; }
           
           # Aguardar serviços
           echo "⏳ Aguardando serviços inicializarem..."
