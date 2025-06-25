@@ -27,15 +27,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Baixar ChromeDriver compatível com a versão instalada do Chrome
-RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
-    echo "Chrome major version: $CHROME_VERSION" && \
-    DRIVER_VERSION=$(curl -sS "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}") && \
-    echo "ChromeDriver version: $DRIVER_VERSION" && \
-    wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip" && \
-    unzip /tmp/chromedriver.zip -d /usr/local/bin/ && \
-    chmod +x /usr/local/bin/chromedriver && \
-    rm /tmp/chromedriver.zip
+# Instalar ChromeDriver usando o novo método para Chrome 115+
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}') && \
+    echo "Chrome version: $CHROME_VERSION" && \
+    CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d'.' -f1) && \
+    if [ "$CHROME_MAJOR" -ge "115" ]; then \
+        # Novo método para Chrome 115+
+        CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR}") && \
+        echo "ChromeDriver version for Chrome $CHROME_MAJOR: $CHROMEDRIVER_VERSION" && \
+        wget -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip" && \
+        unzip /tmp/chromedriver.zip -d /tmp/ && \
+        mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
+        chmod +x /usr/local/bin/chromedriver && \
+        rm -rf /tmp/chromedriver* ; \
+    else \
+        # Método antigo para Chrome < 115
+        CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR}") && \
+        echo "ChromeDriver version: $CHROMEDRIVER_VERSION" && \
+        wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip" && \
+        unzip /tmp/chromedriver.zip -d /usr/local/bin/ && \
+        chmod +x /usr/local/bin/chromedriver && \
+        rm /tmp/chromedriver.zip ; \
+    fi
 
 WORKDIR /app
 

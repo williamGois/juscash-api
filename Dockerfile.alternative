@@ -1,0 +1,48 @@
+FROM python:3.11-slim
+
+# Configurar variáveis de ambiente
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+# Forçar webdriver-manager a baixar o driver correto
+ENV WDM_LOCAL=1
+
+# Instalar dependências básicas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    gnupg \
+    ca-certificates \
+    curl \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Adicionar repositório do Google Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list
+
+# Instalar Chrome e dependências mínimas essenciais
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    google-chrome-stable \
+    xvfb \
+    fonts-liberation \
+    libnss3 \
+    libgconf-2-4 \
+    libxss1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# NÃO instalar ChromeDriver manualmente - deixar o webdriver-manager fazer isso
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Pré-baixar o ChromeDriver correto usando webdriver-manager
+RUN python -c "from webdriver_manager.chrome import ChromeDriverManager; ChromeDriverManager().install()"
+
+COPY . .
+
+RUN chmod +x docker-entrypoint.sh
+
+EXPOSE 5000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:create_app()"] 
