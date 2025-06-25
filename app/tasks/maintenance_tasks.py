@@ -1,13 +1,11 @@
 import os
 import logging
 from datetime import datetime, timedelta
-from celery import current_task
-from app import celery, create_app
+from app import create_app
 from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
 
 logger = logging.getLogger(__name__)
 
-@celery.task
 def cleanup_old_logs():
     """Remove logs antigos para liberar espaço em disco"""
     try:
@@ -35,7 +33,6 @@ def cleanup_old_logs():
         logger.error(f"Erro na limpeza de logs: {str(e)}")
         raise e
 
-@celery.task
 def generate_daily_stats():
     """Gera estatísticas diárias das publicações"""
     try:
@@ -43,13 +40,11 @@ def generate_daily_stats():
         with app.app_context():
             repository = SQLAlchemyPublicacaoRepository()
             
-            # Contar publicações por status
             stats = {}
             for status in ['nova', 'lida', 'processada']:
-                count = repository.count_by_status(status)
+                count = len(repository.find_by_status(status))
                 stats[status] = count
             
-            # Contar publicações do último dia
             ontem = datetime.now() - timedelta(days=1)
             publicacoes_ontem = repository.find_by_date_range(ontem, datetime.now())
             stats['novas_ultimas_24h'] = len(publicacoes_ontem)
@@ -61,7 +56,6 @@ def generate_daily_stats():
         logger.error(f"Erro ao gerar estatísticas: {str(e)}")
         raise e
 
-@celery.task
 def health_check():
     """Verifica saúde do sistema de scraping"""
     try:
@@ -69,10 +63,9 @@ def health_check():
         with app.app_context():
             repository = SQLAlchemyPublicacaoRepository()
             
-            # Verificar conexão com banco
-            total_publicacoes = repository.count_all()
+            all_publicacoes = repository.find_all()
+            total_publicacoes = len(all_publicacoes)
             
-            # Verificar se há publicações recentes (últimos 7 dias)
             semana_passada = datetime.now() - timedelta(days=7)
             publicacoes_recentes = repository.find_by_date_range(semana_passada, datetime.now())
             

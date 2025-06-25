@@ -1,7 +1,5 @@
 from flask import request, jsonify
 from flask_restx import Namespace, Resource, fields
-from app.tasks.scraping_tasks import extract_daily_publicacoes, extract_full_period_publicacoes, extract_custom_period_publicacoes
-from app.tasks.maintenance_tasks import cleanup_old_logs, generate_daily_stats, health_check
 from datetime import datetime
 
 cron_ns = Namespace('cron', description='Operações de agendamento e manutenção')
@@ -24,7 +22,8 @@ class DailyScraping(Resource):
     def post(self):
         """Executar raspagem diária manualmente"""
         try:
-            task = extract_daily_publicacoes.delay()
+            from celery import current_app as celery_app
+            task = celery_app.send_task('app.tasks.scraping_tasks.extract_daily_publicacoes')
             return {
                 'task_id': task.id,
                 'status': 'started',
@@ -44,7 +43,8 @@ class FullPeriodScraping(Resource):
     def post(self):
         """Executar raspagem do período completo manualmente"""
         try:
-            task = extract_full_period_publicacoes.delay()
+            from celery import current_app as celery_app
+            task = celery_app.send_task('app.tasks.scraping_tasks.extract_full_period_publicacoes')
             return {
                 'task_id': task.id,
                 'status': 'started',
@@ -69,7 +69,6 @@ class CustomPeriodScraping(Resource):
             data_inicio_str = data['data_inicio']
             data_fim_str = data['data_fim']
             
-            # Validar formato das datas
             try:
                 datetime.strptime(data_inicio_str, '%Y-%m-%d')
                 datetime.strptime(data_fim_str, '%Y-%m-%d')
@@ -80,9 +79,10 @@ class CustomPeriodScraping(Resource):
                     'message': 'Formato de data inválido. Use YYYY-MM-DD'
                 }, 400
             
-            task = extract_custom_period_publicacoes.delay(
-                data_inicio_str + 'T00:00:00',
-                data_fim_str + 'T23:59:59'
+            from celery import current_app as celery_app
+            task = celery_app.send_task(
+                'app.tasks.scraping_tasks.extract_custom_period_publicacoes',
+                args=[data_inicio_str + 'T00:00:00', data_fim_str + 'T23:59:59']
             )
             
             return {
@@ -105,7 +105,8 @@ class CleanupLogs(Resource):
     def post(self):
         """Executar limpeza de logs manualmente"""
         try:
-            task = cleanup_old_logs.delay()
+            from celery import current_app as celery_app
+            task = celery_app.send_task('app.tasks.maintenance_tasks.cleanup_old_logs')
             return {
                 'task_id': task.id,
                 'status': 'started',
@@ -125,7 +126,8 @@ class DailyStats(Resource):
     def post(self):
         """Gerar estatísticas diárias manualmente"""
         try:
-            task = generate_daily_stats.delay()
+            from celery import current_app as celery_app
+            task = celery_app.send_task('app.tasks.maintenance_tasks.generate_daily_stats')
             return {
                 'task_id': task.id,
                 'status': 'started',
@@ -144,8 +146,9 @@ class HealthCheck(Resource):
     def get(self):
         """Verificar saúde do sistema"""
         try:
-            result = health_check.delay()
-            return result.get(timeout=30)  # Aguardar até 30 segundos
+            from app.tasks.maintenance_tasks import health_check
+            result = health_check()
+            return result
         except Exception as e:
             return {
                 'status': 'error',
@@ -158,32 +161,38 @@ class TaskStatus(Resource):
     @cron_ns.doc('get_task_status')
     def get(self, task_id):
         """Verificar status de uma tarefa específica"""
-        from celery.result import AsyncResult
-        from app import celery
-        
-        task = AsyncResult(task_id, app=celery)
-        
-        if task.state == 'PENDING':
-            response = {
-                'state': task.state,
-                'status': 'Tarefa pendente'
-            }
-        elif task.state == 'PROGRESS':
-            response = {
-                'state': task.state,
-                'current': task.info.get('current', 0),
-                'total': task.info.get('total', 1),
-                'status': task.info.get('status', '')
-            }
-        elif task.state == 'SUCCESS':
-            response = {
-                'state': task.state,
-                'result': task.result
-            }
-        else:  # FAILURE
-            response = {
-                'state': task.state,
-                'error': str(task.info)
-            }
-        
-        return response 
+        try:
+            from celery.result import AsyncResult
+            from celery import current_app as celery_app
+            
+            task = AsyncResult(task_id, app=celery_app)
+            
+            if task.state == 'PENDING':
+                response = {
+                    'state': task.state,
+                    'status': 'Tarefa pendente'
+                }
+            elif task.state == 'PROGRESS':
+                response = {
+                    'state': task.state,
+                    'current': task.info.get('current', 0) if task.info else 0,
+                    'total': task.info.get('total', 1) if task.info else 1,
+                    'status': task.info.get('status', '') if task.info else ''
+                }
+            elif task.state == 'SUCCESS':
+                response = {
+                    'state': task.state,
+                    'result': task.result
+                }
+            else:
+                response = {
+                    'state': task.state,
+                    'error': str(task.info) if task.info else 'Erro desconhecido'
+                }
+            
+            return response
+        except Exception as e:
+            return {
+                'state': 'ERROR',
+                'error': f'Erro ao verificar status: {str(e)}'
+            }, 500 

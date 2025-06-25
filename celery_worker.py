@@ -13,10 +13,20 @@ from app.tasks.scraping_tasks import (
     extract_custom_period_publicacoes
 )
 
+from app.tasks.maintenance_tasks import (
+    cleanup_old_logs,
+    generate_daily_stats,
+    health_check
+)
+
 celery.task(extract_publicacoes_task, bind=True, name='app.tasks.scraping_tasks.extract_publicacoes_task')
 celery.task(extract_daily_publicacoes, name='app.tasks.scraping_tasks.extract_daily_publicacoes')
 celery.task(extract_full_period_publicacoes, name='app.tasks.scraping_tasks.extract_full_period_publicacoes')
 celery.task(extract_custom_period_publicacoes, name='app.tasks.scraping_tasks.extract_custom_period_publicacoes')
+
+celery.task(cleanup_old_logs, name='app.tasks.maintenance_tasks.cleanup_old_logs')
+celery.task(generate_daily_stats, name='app.tasks.maintenance_tasks.generate_daily_stats')
+celery.task(health_check, name='app.tasks.maintenance_tasks.health_check')
 
 # Configurações para Railway/Docker
 celery.conf.update(
