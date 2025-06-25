@@ -121,7 +121,7 @@ jobs:
           
           # Backup da versão atual
           echo "💾 Fazendo backup..."
-          docker-compose exec -T db pg_dump -U juscash juscash_prod_db > backup_$(date +%Y%m%d_%H%M%S).sql || echo "⚠️ Backup falhou"
+          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_$(date +%Y%m%d_%H%M%S).sql || echo "⚠️ Backup falhou"
           
           # Pull das mudanças
           echo "📥 Atualizando código..."
