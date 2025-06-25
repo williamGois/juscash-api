@@ -4,15 +4,15 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: juscash_db
-      POSTGRES_USER: juscash
-      POSTGRES_PASSWORD: juscash123
+      POSTGRES_DB: ${POSTGRES_DB:-juscash_db}
+      POSTGRES_USER: ${POSTGRES_USER:-juscash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-juscash123}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U juscash -d juscash_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-juscash} -d ${POSTGRES_DB:-juscash_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,9 +30,11 @@ services:
   web:
     build: .
     environment:
-      - DATABASE_URL=postgresql://juscash:juscash123@db:5432/juscash_db
-      - REDIS_URL=redis://redis:6379/0
-      - FLASK_ENV=development
+      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=${FLASK_ENV:-development}
+      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
     ports:
       - "5000:5000"
     depends_on:
@@ -48,8 +50,11 @@ services:
   celery:
     build: .
     environment:
-      - DATABASE_URL=postgresql://juscash:juscash123@db:5432/juscash_db
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=${FLASK_ENV:-development}
+      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
     depends_on:
       db:
         condition: service_healthy
@@ -59,6 +64,36 @@ services:
       - .:/app
     entrypoint: ["./docker-entrypoint.sh"]
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
+
+  celery-beat:
+    build: .
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=${FLASK_ENV:-development}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    entrypoint: ["./docker-entrypoint.sh"]
+    command: ["python", "cron_schedule.py"]
+
+  flower:
+    build: .
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    volumes:
+      - .:/app
+    command: ["celery", "-A", "celery_worker.celery", "flower", "--port=5555"]
 
 volumes:
   postgres_data: 

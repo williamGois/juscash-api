@@ -6,6 +6,23 @@ set -e
 
 echo "🚀 Iniciando JusCash API..."
 
+# Verificar e gerar SECRET_KEY se não existir
+if [ -z "$SECRET_KEY" ]; then
+    echo "🔐 SECRET_KEY não encontrada, gerando automaticamente..."
+    export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
+    echo "✅ SECRET_KEY gerada: ${SECRET_KEY:0:20}..."
+    
+    # Adicionar ao .env se existir
+    if [ -f ".env" ]; then
+        if ! grep -q "SECRET_KEY=" .env; then
+            echo "SECRET_KEY=${SECRET_KEY}" >> .env
+            echo "📝 SECRET_KEY adicionada ao .env"
+        fi
+    fi
+else
+    echo "✅ SECRET_KEY encontrada: ${SECRET_KEY:0:20}..."
+fi
+
 # Aguardar PostgreSQL estar disponível
 echo "⏳ Aguardando PostgreSQL..."
 while ! pg_isready -h db -p 5432 -U juscash; do
