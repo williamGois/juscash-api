@@ -7,7 +7,7 @@ def test_swagger_docs_available(client):
 
 def test_swagger_json_available(client):
     """Testa se o JSON da especificação Swagger está disponível"""
-    response = client.get('/swagger.json')
+    response = client.get('/api/swagger.json')
     assert response.status_code == 200
     
     swagger_spec = json.loads(response.data)
@@ -17,7 +17,7 @@ def test_swagger_json_available(client):
 
 def test_swagger_contains_publicacoes_endpoints(client):
     """Testa se os endpoints de publicações estão na documentação"""
-    response = client.get('/swagger.json')
+    response = client.get('/api/swagger.json')
     swagger_spec = json.loads(response.data)
     
     paths = swagger_spec.get('paths', {})
@@ -27,7 +27,7 @@ def test_swagger_contains_publicacoes_endpoints(client):
 
 def test_swagger_contains_scraping_endpoints(client):
     """Testa se os endpoints de scraping estão na documentação"""
-    response = client.get('/swagger.json')
+    response = client.get('/api/swagger.json')
     swagger_spec = json.loads(response.data)
     
     paths = swagger_spec.get('paths', {})
@@ -36,7 +36,7 @@ def test_swagger_contains_scraping_endpoints(client):
 
 def test_swagger_contains_models(client):
     """Testa se os modelos estão definidos na documentação"""
-    response = client.get('/swagger.json')
+    response = client.get('/api/swagger.json')
     swagger_spec = json.loads(response.data)
     
     definitions = swagger_spec.get('definitions', {}) or swagger_spec.get('components', {}).get('schemas', {})

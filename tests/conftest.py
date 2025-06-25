@@ -11,16 +11,22 @@ def app():
     os.environ['FLASK_ENV'] = 'testing'
     os.environ['TESTING'] = 'True'
     
-    # Se não há DATABASE_URL (testes locais), usar SQLite
+    # Se não há DATABASE_URL (testes locais), usar SQLite em memória
     if not os.environ.get('DATABASE_URL'):
         os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+    
+    # Desabilitar Redis para testes
+    os.environ['REDIS_URL'] = 'redis://localhost:6379/15'  # DB 15 para testes
     
     app = create_app('testing')
     
     with app.app_context():
-        db.create_all()
-        yield app
-        db.drop_all()
+        try:
+            db.create_all()
+            yield app
+        finally:
+            db.session.remove()
+            db.drop_all()
 
 @pytest.fixture
 def client(app):
@@ -46,7 +52,19 @@ def sample_publicacao_model():
 def clean_db(app):
     """Limpa o banco a cada teste"""
     with app.app_context():
-        db.session.query(PublicacaoModel).delete()
-        db.session.commit()
+        # Limpar antes do teste
+        try:
+            db.session.query(PublicacaoModel).delete()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        
         yield
-        db.session.rollback() 
+        
+        # Limpar depois do teste
+        try:
+            db.session.rollback()
+            db.session.query(PublicacaoModel).delete()
+            db.session.commit()
+        except Exception:
+            db.session.rollback() 

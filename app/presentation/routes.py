@@ -829,10 +829,26 @@ class ScrapingForceCeleryConfig(Resource):
         
         return result
 
+# Namespace simples para health check
+simple_ns = Namespace('simple', description='Endpoints simples para testes')
+
+@simple_ns.route('/ping')
+class SimplePing(Resource):
+    @simple_ns.doc('simple_ping')
+    def get(self):
+        """Health check básico - não depende de BD ou Redis"""
+        return {
+            'status': 'ok',
+            'message': 'API funcionando',
+            'timestamp': datetime.now().isoformat(),
+            'version': 'v1.0.1-cicd-test'
+        }
+
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
     from .cron_routes import cron_ns
     
     api.add_namespace(publicacoes_ns)
     api.add_namespace(scraping_ns)
-    api.add_namespace(cron_ns) 
+    api.add_namespace(cron_ns)
+    api.add_namespace(simple_ns) 
