@@ -18,56 +18,150 @@ class DJEScraper:
     def __init__(self, base_url: str = "https://dje.tjsp.jus.br/cdje"):
         self.base_url = base_url
         self.session = requests.Session()
-        self.driver = self._setup_driver()
-        self.wait = WebDriverWait(self.driver, 20)
+        self.driver = None
+        self.wait = None
+        self.max_retries = 3
+        self.retry_count = 0
         logging.basicConfig(level=logging.INFO)
+        
+        # Inicializar driver com retry
+        self._initialize_driver()
     
-    def _setup_driver(self):
-        """Configura o driver do Selenium com opções otimizadas para Docker."""
-        logging.info("Configurando o driver do Selenium...")
+    def _get_chrome_options(self):
+        """Configurações otimizadas do Chrome para Docker/Railway"""
         chrome_options = Options()
         
+        # Opções essenciais para Docker
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        
+        # Opções de estabilidade
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-plugins")
         chrome_options.add_argument("--disable-images")
         chrome_options.add_argument("--disable-javascript")
-        chrome_options.add_argument("--memory-pressure-off")
-        chrome_options.add_argument("--max_old_space_size=4096")
-        chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--disable-background-timer-throttling")
         chrome_options.add_argument("--disable-backgrounding-occluded-windows")
         chrome_options.add_argument("--disable-renderer-backgrounding")
         chrome_options.add_argument("--disable-features=TranslateUI")
         chrome_options.add_argument("--disable-ipc-flooding-protection")
+        
+        # Configurações de memória
+        chrome_options.add_argument("--memory-pressure-off")
+        chrome_options.add_argument("--max_old_space_size=4096")
+        chrome_options.add_argument("--single-process")
+        chrome_options.add_argument("--no-zygote")
+        
+        # Configurações de janela
         chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--virtual-time-budget=300000")
+        chrome_options.add_argument("--start-maximized")
+        chrome_options.add_argument("--disable-popup-blocking")
         
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        # Configurações de rede
+        chrome_options.add_argument("--aggressive-cache-discard")
+        chrome_options.add_argument("--disable-background-networking")
+        
+        # Configurações experimentais para Railway/Docker
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_experimental_option('detach', True)
         
-        try:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            logging.info("Driver do Selenium configurado com sucesso via webdriver-manager.")
-            return driver
-        except Exception as e:
-            logging.warning(f"Falha ao usar webdriver-manager: {e}")
-            logging.info("Tentando usar o chromedriver padrão do sistema.")
+        # User agent para evitar bloqueios
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        
+        return chrome_options
+    
+    def _initialize_driver(self):
+        """Inicializa o driver com retry e múltiplas estratégias"""
+        chrome_options = self._get_chrome_options()
+        
+        for attempt in range(self.max_retries):
             try:
-                driver = webdriver.Chrome(options=chrome_options)
-                logging.info("Driver do Selenium configurado com chromedriver do sistema.")
-                return driver
-            except Exception as e2:
-                logging.error(f"Falha ao configurar driver: {e2}")
-                logging.info("Tentando configuração alternativa...")
-                chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-                chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                return webdriver.Chrome(options=chrome_options)
+                logging.info(f"Tentativa {attempt + 1} de inicializar Chrome driver...")
+                
+                if attempt == 0:
+                    # Tentativa 1: webdriver-manager
+                    try:
+                        service = Service(ChromeDriverManager().install())
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        logging.info("✅ Driver inicializado com webdriver-manager")
+                        break
+                    except Exception as e:
+                        logging.warning(f"Webdriver-manager falhou: {e}")
+                        continue
+                
+                elif attempt == 1:
+                    # Tentativa 2: Chrome padrão do sistema
+                    try:
+                        self.driver = webdriver.Chrome(options=chrome_options)
+                        logging.info("✅ Driver inicializado com Chrome do sistema")
+                        break
+                    except Exception as e:
+                        logging.warning(f"Chrome do sistema falhou: {e}")
+                        continue
+                
+                else:
+                    # Tentativa 3: Configuração mínima para Railway
+                    minimal_options = Options()
+                    minimal_options.add_argument("--headless")
+                    minimal_options.add_argument("--no-sandbox")
+                    minimal_options.add_argument("--disable-dev-shm-usage")
+                    minimal_options.add_argument("--single-process")
+                    minimal_options.add_argument("--disable-gpu")
+                    
+                    try:
+                        self.driver = webdriver.Chrome(options=minimal_options)
+                        logging.info("✅ Driver inicializado com configuração mínima")
+                        break
+                    except Exception as e:
+                        logging.error(f"Todas as tentativas falharam: {e}")
+                        if attempt == self.max_retries - 1:
+                            raise Exception("Não foi possível inicializar o Chrome driver")
+                        continue
+            
+            except Exception as e:
+                logging.error(f"Erro na tentativa {attempt + 1}: {e}")
+                if self.driver:
+                    try:
+                        self.driver.quit()
+                    except:
+                        pass
+                    self.driver = None
+                
+                if attempt == self.max_retries - 1:
+                    raise Exception(f"Falha crítica ao inicializar Chrome: {e}")
+                
+                time.sleep(2)  # Aguardar antes da próxima tentativa
+        
+        if self.driver:
+            # Configurar timeouts
+            self.driver.set_page_load_timeout(30)
+            self.driver.implicitly_wait(10)
+            self.wait = WebDriverWait(self.driver, 20)
+            
+            # Configurar propriedades anti-detecção
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    
+    def _restart_driver_if_needed(self):
+        """Reinicia o driver se necessário"""
+        try:
+            # Testar se o driver ainda está funcionando
+            self.driver.current_url
+            return True
+        except Exception as e:
+            logging.warning(f"Driver não responsivo: {e}. Reiniciando...")
+            try:
+                if self.driver:
+                    self.driver.quit()
+            except:
+                pass
+            
+            self._initialize_driver()
+            return self.driver is not None
     
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
         publicacoes = []
@@ -75,12 +169,25 @@ class DJEScraper:
         current_date = data_inicio
         while current_date <= data_fim:
             try:
+                # Verificar se driver ainda está funcionando
+                if not self._restart_driver_if_needed():
+                    logging.error("Não foi possível reinicializar o driver")
+                    break
+                
                 publicacoes_do_dia = self._extrair_publicacoes_do_dia(current_date)
                 publicacoes.extend(publicacoes_do_dia)
                 current_date += timedelta(days=1)
                 time.sleep(2)
+                
             except Exception as e:
-                print(f"Erro ao extrair publicações do dia {current_date}: {str(e)}")
+                logging.error(f"Erro ao extrair publicações do dia {current_date}: {str(e)}")
+                
+                # Tentar reinicializar driver em caso de erro
+                try:
+                    self._restart_driver_if_needed()
+                except:
+                    logging.error("Não foi possível reinicializar driver após erro")
+                
                 current_date += timedelta(days=1)
                 continue
         
@@ -90,8 +197,13 @@ class DJEScraper:
         url = f"{self.base_url}/consultaSimples.do"
         
         try:
+            # Verificar se driver está ok antes de usar
+            if not self.driver:
+                raise Exception("Driver não está inicializado")
+            
             self.driver.get(url)
             
+            # Aguardar página carregar
             data_field = self.wait.until(EC.presence_of_element_located((By.NAME, "dtDiario")))
             data_field.clear()
             data_field.send_keys(data.strftime("%d/%m/%Y"))
@@ -121,12 +233,12 @@ class DJEScraper:
                         publicacoes.append(publicacao_data)
                         
             except Exception as e:
-                print(f"Erro ao processar publicações: {str(e)}")
+                logging.error(f"Erro ao processar publicações: {str(e)}")
             
             return publicacoes
             
         except Exception as e:
-            print(f"Erro ao acessar DJE: {str(e)}")
+            logging.error(f"Erro ao acessar DJE: {str(e)}")
             return []
     
     def _extrair_dados_publicacao(self, element, data: datetime) -> Dict[str, Any]:
@@ -157,7 +269,7 @@ class DJEScraper:
             }
             
         except Exception as e:
-            print(f"Erro ao extrair dados da publicação: {str(e)}")
+            logging.error(f"Erro ao extrair dados da publicação: {str(e)}")
             return None
     
     def _validar_criterios_busca(self, publicacao_data: Dict[str, Any]) -> bool:
@@ -237,5 +349,10 @@ class DJEScraper:
     
     def close(self):
         if self.driver:
-            self.driver.quit()
-            logging.info("Driver do Selenium finalizado.") 
+            try:
+                self.driver.quit()
+                logging.info("✅ Driver do Selenium finalizado com sucesso")
+            except Exception as e:
+                logging.warning(f"Erro ao fechar driver: {e}")
+            finally:
+                self.driver = None 
