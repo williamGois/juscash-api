@@ -25,7 +25,17 @@ fi
 
 # Aguardar PostgreSQL estar disponível
 echo "⏳ Aguardando PostgreSQL..."
-while ! pg_isready -h db -p 5432 -U juscash; do
+while ! python3 -c "
+import psycopg2
+import sys
+try:
+    conn = psycopg2.connect(host='db', port=5432, user='juscash', password='juscash123', database='juscash', connect_timeout=5)
+    conn.close()
+    print('PostgreSQL conectado!')
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; do
   echo "PostgreSQL não está pronto - aguardando..."
   sleep 2
 done
@@ -34,7 +44,17 @@ echo "✅ PostgreSQL conectado!"
 
 # Aguardar Redis estar disponível
 echo "⏳ Aguardando Redis..."
-while ! redis-cli -h redis ping > /dev/null 2>&1; do
+while ! python3 -c "
+import redis
+import sys
+try:
+    r = redis.Redis(host='redis', port=6379, socket_connect_timeout=5)
+    r.ping()
+    print('Redis conectado!')
+    sys.exit(0)
+except:
+    sys.exit(1)
+" 2>/dev/null; do
   echo "Redis não está pronto - aguardando..."
   sleep 2
 done
