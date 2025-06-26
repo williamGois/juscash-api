@@ -195,4 +195,101 @@ class TaskStatus(Resource):
             return {
                 'state': 'ERROR',
                 'error': f'Erro ao verificar status: {str(e)}'
-            }, 500 
+            }, 500
+
+@cron_ns.route('/tasks/active')
+class ActiveTasks(Resource):
+    @cron_ns.doc('list_active_tasks')
+    def get(self):
+        """Lista todas as tarefas ativas no Celery"""
+        try:
+            from celery import current_app as celery_app
+            
+            # Obter inspect instance
+            inspect = celery_app.control.inspect()
+            
+            # Obter tarefas ativas
+            active_tasks = inspect.active()
+            scheduled_tasks = inspect.scheduled()
+            reserved_tasks = inspect.reserved()
+            
+            result = {
+                'timestamp': datetime.now().isoformat(),
+                'workers': {},
+                'summary': {
+                    'total_workers': 0,
+                    'total_active': 0,
+                    'total_scheduled': 0,
+                    'total_reserved': 0
+                }
+            }
+            
+            # Processar tarefas ativas
+            if active_tasks:
+                for worker, tasks in active_tasks.items():
+                    result['workers'][worker] = {
+                        'active': tasks,
+                        'scheduled': scheduled_tasks.get(worker, []) if scheduled_tasks else [],
+                        'reserved': reserved_tasks.get(worker, []) if reserved_tasks else []
+                    }
+                    result['summary']['total_active'] += len(tasks)
+                    
+            # Processar tarefas agendadas
+            if scheduled_tasks:
+                for worker, tasks in scheduled_tasks.items():
+                    if worker not in result['workers']:
+                        result['workers'][worker] = {'active': [], 'scheduled': tasks, 'reserved': []}
+                    else:
+                        result['workers'][worker]['scheduled'] = tasks
+                    result['summary']['total_scheduled'] += len(tasks)
+                    
+            # Processar tarefas reservadas
+            if reserved_tasks:
+                for worker, tasks in reserved_tasks.items():
+                    if worker not in result['workers']:
+                        result['workers'][worker] = {'active': [], 'scheduled': [], 'reserved': tasks}
+                    else:
+                        result['workers'][worker]['reserved'] = tasks
+                    result['summary']['total_reserved'] += len(tasks)
+            
+            result['summary']['total_workers'] = len(result['workers'])
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'error': f'Erro ao listar tarefas ativas: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }, 500
+
+@cron_ns.route('/workers/stats')
+class WorkerStats(Resource):
+    @cron_ns.doc('get_worker_stats')
+    def get(self):
+        """Estatísticas dos workers Celery"""
+        try:
+            from celery import current_app as celery_app
+            
+            inspect = celery_app.control.inspect()
+            
+            # Obter estatísticas
+            stats = inspect.stats()
+            registered_tasks = inspect.registered()
+            
+            result = {
+                'timestamp': datetime.now().isoformat(),
+                'workers': stats or {},
+                'registered_tasks': registered_tasks or {},
+                'summary': {
+                    'total_workers': len(stats) if stats else 0,
+                    'workers_online': list(stats.keys()) if stats else []
+                }
+            }
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'error': f'Erro ao obter estatísticas dos workers: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }, 500
