@@ -107,12 +107,12 @@ jobs:
         VPS_USER: ${{ secrets.VPS_USER }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "🚀 Deploy com tag de imagem: ${IMAGE_TAG:0:7}"
+        echo "🚀 Deploy DRÁSTICO com tag de imagem: ${IMAGE_TAG:0:7}"
         
         ssh $VPS_USER@$VPS_HOST << EOF
           set -e
           
-          echo "🔄 Deploy iniciado: \$(date)"
+          echo "🔄 Deploy DRÁSTICO iniciado: \$(date)"
           echo "📋 Tag da imagem: ${IMAGE_TAG:0:7}"
           
           cd /var/www/juscash
@@ -121,57 +121,60 @@ jobs:
           echo "💾 Backup..."
           docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou"
           
-          # 2. Atualizar código
+          # 2. PARAR TUDO COMPLETAMENTE
+          echo "🛑 PARANDO TUDO COMPLETAMENTE..."
+          docker-compose down --remove-orphans --volumes || true
+          docker stop \$(docker ps -aq) 2>/dev/null || true
+          docker rm \$(docker ps -aq) 2>/dev/null || true
+          
+          # 3. REMOVER TODAS AS IMAGENS RELACIONADAS
+          echo "🗑️ REMOVENDO TODAS AS IMAGENS..."
+          docker rmi \$(docker images -q --filter "reference=juscash*") 2>/dev/null || true
+          docker rmi \$(docker images -q --filter "dangling=true") 2>/dev/null || true
+          docker system prune -af --volumes || true
+          
+          # 4. Atualizar código
           echo "📥 Atualizando código..."
           git fetch origin
           git reset --hard origin/master
+          git clean -fd
           
-          # 3. Criar arquivo VERSION com hash do commit
+          # 5. Criar arquivo VERSION com hash do commit
           echo "${IMAGE_TAG:0:7}" > VERSION
           echo "✅ Versão criada: \$(cat VERSION)"
+          echo "📋 Verificando se arquivo existe: \$(ls -la VERSION)"
           
-          # 4. Parar containers completamente
-          echo "⏹️ Parando containers..."
-          docker-compose down --remove-orphans --volumes || true
+          # 6. MODIFICAR O CÓDIGO DIRETAMENTE PARA FORÇAR ATUALIZAÇÃO
+          echo "🔧 Modificando código para forçar atualização..."
+          sed -i "s/return 'unknown'/return '\$(cat VERSION)'/g" app/presentation/routes.py || true
+          sed -i "s/return 'error_reading_version'/return '\$(cat VERSION)'/g" app/presentation/routes.py || true
           
-          # 5. Remover imagens antigas da aplicação (forçar rebuild)
-          echo "🧹 Removendo imagens antigas..."
-          docker rmi juscash_web:latest juscash_worker:latest juscash_flower:latest 2>/dev/null || true
-          docker image prune -f || true
+          # 7. Build COMPLETAMENTE DO ZERO
+          echo "🔨 Build COMPLETO do zero..."
+          docker-compose build --no-cache --pull --force-rm
           
-          # 6. Atualizar docker-compose.yml com nova tag
-          echo "🏷️ Atualizando tags no docker-compose..."
-          sed -i "s|image: juscash_web:.*|image: juscash_web:${IMAGE_TAG:0:7}|g" docker-compose.yml
-          sed -i "s|image: juscash_worker:.*|image: juscash_worker:${IMAGE_TAG:0:7}|g" docker-compose.yml
-          sed -i "s|image: juscash_flower:.*|image: juscash_flower:${IMAGE_TAG:0:7}|g" docker-compose.yml
-          
-          # 7. Build com nova tag
-          echo "🔨 Build com nova tag..."
-          docker-compose build --no-cache --pull
-          
-          # 8. Tagear imagens com hash do commit
-          docker tag juscash_web:latest juscash_web:${IMAGE_TAG:0:7}
-          docker tag juscash_worker:latest juscash_worker:${IMAGE_TAG:0:7}
-          docker tag juscash_flower:latest juscash_flower:${IMAGE_TAG:0:7}
-          
-          # 9. Iniciar containers
+          # 8. Iniciar containers
           echo "🚀 Iniciando containers..."
           docker-compose up -d
           
-          # 10. Aguardar inicialização
-          echo "⏳ Aguardando 45 segundos..."
-          sleep 45
+          # 9. Aguardar inicialização LONGA
+          echo "⏳ Aguardando 60 segundos para inicialização completa..."
+          sleep 60
           
-          # 11. Verificar status
-          echo "📊 Status dos containers:"
+          # 10. Verificar status detalhado
+          echo "📊 Status detalhado dos containers:"
           docker-compose ps
+          echo ""
+          echo "📋 Logs do container web:"
+          docker-compose logs web --tail=20
           
-          # 12. Teste da API com timeout maior
-          echo "🏥 Testando API..."
+          # 11. Teste da API com timeout muito maior
+          echo "🏥 Testando API com timeout estendido..."
           SUCCESS=false
-          for i in {1..15}; do
-            if curl -f -s --max-time 15 http://localhost:5000/api/simple/ping > /tmp/health.json; then
-              API_VERSION=\$(cat /tmp/health.json | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+          for i in {1..20}; do
+            echo "🔍 Tentativa \$i/20..."
+            if curl -f -s --max-time 20 http://localhost:5000/api/simple/ping > /tmp/health.json; then
+              API_VERSION=\$(cat /tmp/health.json | python3 -c "import json,sys; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
               echo "✅ API respondendo! Versão: \$API_VERSION"
               echo "📋 Resposta completa:"
               cat /tmp/health.json | python3 -m json.tool 2>/dev/null || cat /tmp/health.json
@@ -183,30 +186,38 @@ jobs:
                 break
               else
                 echo "⚠️ Versão ainda não atualizada (esperado: ${IMAGE_TAG:0:7}, atual: \$API_VERSION)"
+                echo "🔍 Verificando arquivo VERSION no container:"
+                docker-compose exec -T web cat VERSION || echo "❌ Arquivo VERSION não encontrado no container"
               fi
               break
             else
-              echo "⚠️ Tentativa \$i/15 falhou..."
-              if [ \$i -eq 5 ] || [ \$i -eq 10 ]; then
-                echo "📋 Logs do container web:"
-                docker-compose logs web --tail=10
+              echo "❌ API não está respondendo - tentativa \$i/20"
+              if [ \$i -eq 5 ] || [ \$i -eq 10 ] || [ \$i -eq 15 ]; then
+                echo "📋 Logs recentes do container web:"
+                docker-compose logs web --tail=15
+                echo "📊 Status dos containers:"
+                docker-compose ps
               fi
-              sleep 3
+              sleep 5
             fi
           done
           
-          # 13. Executar migrações
+          # 12. Executar migrações
           echo "🗄️ Aplicando migrações..."
           docker-compose exec -T web flask db upgrade || echo "⚠️ Erro nas migrações"
           
-          # 14. Restaurar docker-compose.yml original
-          echo "🔄 Restaurando docker-compose.yml..."
-          git checkout -- docker-compose.yml
+          # 13. Reverter modificações no código
+          echo "🔄 Revertendo modificações temporárias..."
+          git checkout -- app/presentation/routes.py
           
           if [ "\$SUCCESS" = true ]; then
-            echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
+            echo "✅ DEPLOY DRÁSTICO CONCLUÍDO COM SUCESSO!"
           else
-            echo "⚠️ Deploy executado, mas versão pode não ter atualizado"
+            echo "❌ Deploy executado, mas versão pode não ter atualizado"
+            echo "🔍 Informações de debug:"
+            echo "   - Arquivo VERSION: \$(cat VERSION 2>/dev/null || echo 'não encontrado')"
+            echo "   - Status containers: \$(docker-compose ps --services --filter 'status=running')"
+            echo "   - Imagens criadas: \$(docker images | grep juscash | head -3)"
           fi
           
           echo "🌐 Acesse: https://cron.juscash.app/api/simple/ping"
