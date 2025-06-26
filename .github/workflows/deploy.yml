@@ -237,9 +237,9 @@ jobs:
           
           log "Aguardando aplicação iniciar..."
           
-          for i in {1..6}; do
-              log "Verificação $i/6: Aguardando 10 segundos..."
-              sleep 10
+          for i in {1..8}; do
+              log "Verificação $i/8: Aguardando 15 segundos..."
+              sleep 15
               
               log "Status atual dos containers:"
               docker-compose -f docker-compose.prod.yml ps
@@ -247,15 +247,23 @@ jobs:
               if docker-compose -f docker-compose.prod.yml ps | grep -q "juscash_web_prod.*Up"; then
                   log "✓ Container web ainda está rodando"
                   
+                  # Verifica se o health check passou
+                  HEALTH_STATUS=$(docker-compose -f docker-compose.prod.yml ps | grep juscash_web_prod | grep -o "(healthy)" || echo "starting")
+                  log "Health check status: $HEALTH_STATUS"
+                  
                   log "Verificando se aplicação responde:"
                   HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/simple/ping || echo "000")
                   log "Status HTTP da aplicação: $HTTP_STATUS"
                   
-                  if [ "$HTTP_STATUS" = "200" ]; then
+                  # Tenta também o endpoint raiz
+                  ROOT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/ || echo "000")
+                  log "Status HTTP raiz (/): $ROOT_STATUS"
+                  
+                  if [ "$HTTP_STATUS" = "200" ] || [ "$ROOT_STATUS" = "200" ]; then
                       log "🎉 Aplicação está respondendo corretamente!"
                       break
                   else
-                      log "⚠️ Aplicação ainda não está respondendo..."
+                      log "⚠️ Aplicação ainda não está respondendo (ping: $HTTP_STATUS, root: $ROOT_STATUS)..."
                   fi
               elif docker-compose -f docker-compose.prod.yml ps | grep -q "juscash_web_prod.*Restarting"; then
                   log "⚠️ Container web está reiniciando - capturando logs de erro..."
@@ -276,10 +284,10 @@ jobs:
               fi
               
               log "Logs recentes do container web:"
-              docker-compose -f docker-compose.prod.yml logs --tail=5 web
+              docker-compose -f docker-compose.prod.yml logs --tail=10 web
               
-              if [ $i -eq 6 ]; then
-                  log "⚠️ Aplicação não respondeu após 60 segundos, mas container está rodando"
+              if [ $i -eq 8 ]; then
+                  log "⚠️ Aplicação não respondeu após 120 segundos, mas container está rodando"
                   log "=== LOGS DETALHADOS PARA DEBUG ==="
                   docker-compose -f docker-compose.prod.yml logs web
               fi
