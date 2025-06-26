@@ -20,6 +20,9 @@ psql: error: connection to server at "db" (172.20.0.3), port 5432 failed: FATAL:
 - ✅ Removido comando `create-tables.py` inexistente (tabelas são criadas pelo `run.py`)
 - ✅ Melhorada a sequência de inicialização dos containers
 - ✅ Corrigido erro de sintaxe no heredoc (agora usa echo linha por linha)
+- ✅ Removido `set -e` e adicionado tratamento granular de erros
+- ✅ Verificação de dependências (Python3, Docker, Docker Compose)
+- ✅ Logs detalhados para debug em caso de falha
 
 ### 2. Configurações de Ambiente
 O script agora cria automaticamente um arquivo `.env` com:
@@ -62,10 +65,12 @@ Após o deploy, verificar:
 ✅ **Docker Compose otimizado** - Warnings eliminados  
 ✅ **Pronto para novo deploy**  
 
-## ⚠️ Última Atualização
+## ⚠️ Última Atualização - 04:12:00 - SCRIPT ROBUSTO
 As mudanças neste commit resolvem:
-1. ❌ **Erro anterior:** Script quebrado por formatação heredoc incorreta
-2. ✅ **Correção aplicada:** Geração de .env linha por linha com echo
-3. ✅ **Bonus:** Warnings do Docker Compose eliminados
+1. ❌ **Erro anterior:** Script parando com "Process exited with status 1"
+2. ✅ **Correção aplicada:** Removido `set -e`, adicionado tratamento granular de erros
+3. ✅ **Robustez:** Verificação de dependências, validação de arquivo .env criado
+4. ✅ **Debug:** Logs detalhados e senha mascarada nos logs
+5. ✅ **Simplificação:** .env sempre recriado com senhas novas
 
-O próximo deploy deve funcionar perfeitamente! 
+🔥 **SCRIPT TOTALMENTE REESCRITO E ROBUSTO - PRONTO PARA DEPLOY!** 

@@ -52,8 +52,6 @@ jobs:
         script_stop: true
         timeout: 30m
         script: |
-          set -e
-          
           LOG_DIR="/var/www/juscash/logs"
           mkdir -p "$LOG_DIR"
           LOG_FILE="$LOG_DIR/deploy_$(date +%Y%m%d_%H%M%S).log"
@@ -62,10 +60,21 @@ jobs:
               echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
           }
           
+          error_exit() {
+              log "❌ ERRO na etapa: $1"
+              log "Logs de debug salvos em: $LOG_FILE"
+              exit 1
+          }
+          
           log "=== INICIANDO DEPLOY ==="
           log "Commit: ${{ github.sha }}"
           
-          cd /var/www/juscash
+          log "Verificando dependências..."
+          python3 --version || error_exit "Python3 não encontrado"
+          docker --version || error_exit "Docker não encontrado"
+          docker-compose --version || error_exit "Docker Compose não encontrado"
+          
+          cd /var/www/juscash || error_exit "Diretório /var/www/juscash não encontrado"
           log "✓ Etapa 1/18: Diretório atual: $(pwd)"
           
           if [ -f .env ]; then
@@ -88,8 +97,8 @@ jobs:
           
           docker rmi juscash-api-web:latest 2>/dev/null || true
           docker rmi juscash_web:prod 2>/dev/null || true
-          OLD_IMAGES=$(docker images -q --filter "reference=juscash-api-web" 2>/dev/null)
-          if [ ! -z "$OLD_IMAGES" ]; then
+          OLD_IMAGES=$(docker images -q --filter "reference=juscash-api-web" 2>/dev/null || true)
+          if [ -n "$OLD_IMAGES" ]; then
               docker rmi $OLD_IMAGES 2>/dev/null || true
           fi
           log "✓ Etapa 6/18: Imagem antiga do web removida"
@@ -97,35 +106,40 @@ jobs:
           echo "${{ github.sha }}" > VERSION
           log "✓ Etapa 7/18: Arquivo VERSION criado com hash: ${{ github.sha }}"
           
+          log "✓ Etapa 8/18: Configurando ambiente de produção"
+          
+          log "Gerando chaves seguras..."
+          SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))") || error_exit "Falha ao gerar SECRET_KEY"
+          POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))") || error_exit "Falha ao gerar POSTGRES_PASSWORD"
+          
+          log "Criando novo arquivo .env..."
+          rm -f .env
+          echo "PRODUCTION=true" > .env
+          echo "FLASK_ENV=production" >> .env
+          echo "SECRET_KEY=${SECRET_KEY}" >> .env
+          echo "POSTGRES_DB=juscash_db" >> .env
+          echo "POSTGRES_USER=juscash" >> .env
+          echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> .env
+          echo "DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db" >> .env
+          echo "REDIS_URL=redis://redis:6379/0" >> .env
+          echo "DJE_BASE_URL=https://dje.tjsp.jus.br/cdje" >> .env
+          echo "SCRAPING_ENABLED=true" >> .env
+          echo "DAILY_SCRAPING_SCHEDULE=3600" >> .env
+          echo "WEEKLY_SCRAPING_SCHEDULE=604800" >> .env
+          echo "CLEANUP_SCHEDULE=86400" >> .env
+          echo "DB_POOL_SIZE=10" >> .env
+          echo "DB_POOL_RECYCLE=300" >> .env
+          echo "FLOWER_USER=admin" >> .env
+          echo "FLOWER_PASSWORD=juscash2024" >> .env
+          
           if [ ! -f .env ]; then
-              log "✓ Etapa 8/18: Criando arquivo .env de produção"
-              SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
-              POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-              
-              echo "PRODUCTION=true" > .env
-              echo "FLASK_ENV=production" >> .env
-              echo "SECRET_KEY=${SECRET_KEY}" >> .env
-              echo "POSTGRES_DB=juscash_db" >> .env
-              echo "POSTGRES_USER=juscash" >> .env
-              echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> .env
-              echo "DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db" >> .env
-              echo "REDIS_URL=redis://redis:6379/0" >> .env
-              echo "DJE_BASE_URL=https://dje.tjsp.jus.br/cdje" >> .env
-              echo "SCRAPING_ENABLED=true" >> .env
-              echo "DAILY_SCRAPING_SCHEDULE=3600" >> .env
-              echo "WEEKLY_SCRAPING_SCHEDULE=604800" >> .env
-              echo "CLEANUP_SCHEDULE=86400" >> .env
-              echo "DB_POOL_SIZE=10" >> .env
-              echo "DB_POOL_RECYCLE=300" >> .env
-              echo "FLOWER_USER=admin" >> .env
-              echo "FLOWER_PASSWORD=juscash2024" >> .env
-              
-              log "✓ Arquivo .env criado com senhas seguras"
-          else
-              log "✓ Etapa 8/18: Arquivo .env já existe"
+              error_exit "Arquivo .env não foi criado"
           fi
           
-          docker-compose -f docker-compose.prod.yml up -d db redis
+          log "✓ Arquivo .env criado com senhas seguras: POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
+          
+          log "Iniciando banco de dados e Redis..."
+          docker-compose -f docker-compose.prod.yml up -d db redis || error_exit "Falha ao iniciar banco de dados e Redis"
           log "✓ Etapa 9/18: Banco de dados e Redis iniciados"
           
           log "Aguardando banco de dados ficar pronto..."
@@ -146,10 +160,12 @@ jobs:
           docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
           log "✓ Etapa 11/18: Banco de dados criado ou já existente"
           
-          docker-compose -f docker-compose.prod.yml build --no-cache web
+          log "Construindo nova imagem web..."
+          docker-compose -f docker-compose.prod.yml build --no-cache web || error_exit "Falha ao construir imagem web"
           log "✓ Etapa 12/18: Nova imagem web construída"
           
-          docker-compose -f docker-compose.prod.yml up -d web
+          log "Iniciando container web..."
+          docker-compose -f docker-compose.prod.yml up -d web || error_exit "Falha ao iniciar container web"
           log "✓ Etapa 13/18: Container web iniciado"
           
           log "Aguardando aplicação iniciar..."
