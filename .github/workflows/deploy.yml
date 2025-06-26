@@ -130,23 +130,10 @@ jobs:
               sleep 2
           done
           
-          # 11. Criar usuário e banco se não existirem
+          # 11. Criar banco de dados se não existir
           log "Configurando banco de dados..."
-          
-          # Primeiro, tentar criar o banco usando o usuário padrão postgres
-          docker-compose exec -T db psql -U postgres -c "SELECT 1" > /dev/null 2>&1 || {
-              # Se postgres não existe, usar o usuário juscash que foi criado pelo POSTGRES_USER
-              docker-compose exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
-              log "✓ Etapa 11/16: Banco de dados configurado"
-          }
-          
-          # Se conseguiu conectar com postgres, criar usuário e banco
-          if docker-compose exec -T db psql -U postgres -c "SELECT 1" > /dev/null 2>&1; then
-              docker-compose exec -T db psql -U postgres -c "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'juscash') THEN CREATE ROLE juscash LOGIN PASSWORD 'juscash123'; END IF; END\$\$;"
-              docker-compose exec -T db psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'juscash_db'" | grep -q 1 || docker-compose exec -T db createdb -U postgres -O juscash juscash_db
-              docker-compose exec -T db psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE juscash_db TO juscash;"
-              log "✓ Etapa 11/16: Usuário e banco criados/verificados"
-          fi
+          docker-compose exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
+          log "✓ Etapa 11/16: Banco de dados criado ou já existente."
           
           # 12. Reconstruir imagem web
           docker-compose build --no-cache web
