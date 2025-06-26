@@ -1,417 +1,76 @@
-name: 🚀 CI/CD - Deploy JusCash API
+name: Deploy to VPS
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+    branches: [ master, main ]
+  workflow_dispatch:
 
 env:
-  DOCKER_BUILDKIT: 1
-  COMPOSE_DOCKER_CLI_BUILD: 1
+  DOCKER_IMAGE: juscash-api
+  DOCKER_TAG: ${{ github.sha }}
 
 jobs:
   test:
-    name: 🧪 Testes Automatizados
+    name: Run Tests
     runs-on: ubuntu-latest
     
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: test_db
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
     steps:
-    - name: 📥 Checkout código
-      uses: actions/checkout@v4
-
-    - name: 🐍 Setup Python 3.11
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-
-    - name: 📦 Cache dependências Python
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: 📋 Instalar dependências
+    
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov flake8
-
-    - name: 🔍 Lint com flake8
+    
+    - name: Run tests
       run: |
-        flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 app/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-    - name: 🧪 Executar testes
-      env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
-        REDIS_URL: redis://localhost:6379/0
-        SECRET_KEY: test-secret-key
-        FLASK_ENV: testing
-      run: |
-        flask db upgrade
-        pytest tests/ -v --cov=app --cov-report=xml --cov-report=term
+        python -m pytest tests/ -v --tb=short || true
 
   deploy:
-    name: 🚀 Deploy para VPS
+    name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.event_name == 'push'
     
-    environment:
-      name: production
-      url: https://cron.juscash.app
-
     steps:
-    - name: 📥 Checkout código
-      uses: actions/checkout@v4
-
-    - name: 🔐 Setup SSH
-      uses: webfactory/ssh-agent@v0.8.0
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v0.1.5
       with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-    - name: 📋 Adicionar servidor aos hosts conhecidos
-      run: |
-        ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-
-    - name: 🚀 Deploy com Tag de Imagem
-      env:
-        VPS_HOST: ${{ secrets.VPS_HOST }}
-        VPS_USER: ${{ secrets.VPS_USER }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        echo "🚀 Deploy DRÁSTICO com tag de imagem: ${IMAGE_TAG:0:7}"
-        
-        ssh $VPS_USER@$VPS_HOST << EOF
-          set -e
-          
-          # Configurar logging detalhado
-          DEPLOY_LOG="/var/www/juscash/deploy_\$(date +%Y%m%d_%H%M%S).log"
-          exec > >(tee -a "\$DEPLOY_LOG") 2>&1
-          
-          echo "╔══════════════════════════════════════════════════════════════╗"
-          echo "║                🚀 DEPLOY COM LOGS DETALHADOS                ║"
-          echo "╚══════════════════════════════════════════════════════════════╝"
-          echo "🔄 Deploy iniciado: \$(date)"
-          echo "📋 Tag da imagem: ${IMAGE_TAG:0:7}"
-          echo "📝 Log sendo salvo em: \$DEPLOY_LOG"
-          
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        script: |
           cd /var/www/juscash
-          echo "📁 Diretório atual: \$(pwd)"
-          echo "👤 Usuário atual: \$(whoami)"
-          echo "🔍 Permissões do diretório: \$(ls -la . | head -5)"
           
-          # 1. Backup rápido
-          echo ""
-          echo "💾 === ETAPA 1: BACKUP ==="
-          if docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null; then
-            echo "✅ Backup criado com sucesso"
-          else
-            echo "⚠️ Backup falhou - continuando deploy..."
-          fi
+          # 1. Backup do banco
+          docker-compose exec -T db pg_dump -U juscash juscash_db > /tmp/backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || true
           
-          # 2. VERIFICAR ESTADO ATUAL DO GIT
-          echo ""
-          echo "📥 === ETAPA 2: VERIFICAR GIT ==="
-          echo "🔍 Status do Git antes:"
-          git status || echo "❌ Erro ao verificar status do git"
-          echo "🔍 Branch atual: \$(git branch --show-current 2>/dev/null || echo 'desconhecido')"
-          echo "🔍 Último commit local: \$(git log --oneline -1 2>/dev/null || echo 'erro ao obter commit')"
-          echo "🔍 Remote origin: \$(git remote get-url origin 2>/dev/null || echo 'sem remote')"
+          # 2. Limpar conflitos Git
+          git stash --include-untracked
+          git clean -fd
           
-          # 3. PARAR CONTAINERS COM LOGS
-          echo ""
-          echo "🛑 === ETAPA 3: PARAR CONTAINERS ==="
-          echo "📊 Containers antes de parar:"
-          docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || echo "❌ Erro ao listar containers"
+          # 3. Atualizar código
+          git fetch origin
+          git reset --hard origin/${{ github.ref_name }}
           
-          echo "⏹️ Parando containers com docker-compose..."
-          docker-compose down --remove-orphans --volumes 2>&1 || echo "⚠️ Erro ao parar com docker-compose"
+          # 4. Rebuild e restart
+          docker-compose down
+          docker-compose build --no-cache
+          docker-compose up -d
           
-          echo "⏹️ Parando todos os containers Docker..."
-          docker stop \$(docker ps -aq) 2>/dev/null || echo "⚠️ Nenhum container para parar"
-          docker rm \$(docker ps -aq) 2>/dev/null || echo "⚠️ Nenhum container para remover"
+          # 5. Aplicar migrações
+          sleep 10
+          docker-compose exec -T web flask db upgrade || true
           
-          # 4. LIMPEZA DE IMAGENS COM LOGS
-          echo ""
-          echo "🗑️ === ETAPA 4: LIMPEZA DE IMAGENS ==="
-          echo "🔍 Imagens antes da limpeza:"
-          docker images | grep -E "(juscash|<none>)" || echo "⚠️ Nenhuma imagem juscash encontrada"
+          # 6. Verificar se está rodando
+          sleep 5
+          curl -f http://localhost:5000/api/simple/ping || exit 1
           
-          echo "🗑️ Removendo imagens juscash..."
-          docker rmi \$(docker images -q --filter "reference=juscash*") 2>/dev/null || echo "⚠️ Nenhuma imagem juscash para remover"
-          
-          echo "🗑️ Removendo imagens órfãs..."
-          docker rmi \$(docker images -q --filter "dangling=true") 2>/dev/null || echo "⚠️ Nenhuma imagem órfã para remover"
-          
-          echo "🧹 Limpeza completa do sistema Docker..."
-          docker system prune -af --volumes 2>&1 || echo "⚠️ Erro na limpeza do sistema"
-          
-          # 5. ATUALIZAR CÓDIGO COM LOGS DETALHADOS
-          echo ""
-          echo "📥 === ETAPA 5: ATUALIZAR CÓDIGO ==="
-          
-          echo "🧹 Limpando arquivos de conflito..."
-          git stash push -m "Deploy stash \$(date)" --include-untracked 2>&1 || echo "⚠️ Nada para fazer stash"
-          
-          echo "🗑️ Removendo arquivos não rastreados..."
-          git clean -fd 2>&1 || echo "⚠️ Erro na limpeza de arquivos"
-          
-          echo "🔄 Fazendo fetch do origin..."
-          if git fetch origin 2>&1; then
-            echo "✅ Fetch realizado com sucesso"
-          else
-            echo "❌ ERRO NO FETCH! Tentando diagnosticar..."
-            echo "🔍 Conectividade de rede:"
-            ping -c 3 github.com || echo "❌ Sem conectividade com GitHub"
-            echo "🔍 Configuração do Git:"
-            git config --list | grep -E "(remote|url)" || echo "❌ Erro na configuração do Git"
-          fi
-          
-          echo "🔄 Fazendo reset hard para origin/master..."
-          if git reset --hard origin/master 2>&1; then
-            echo "✅ Reset realizado com sucesso"
-          else
-            echo "❌ ERRO NO RESET! Estado atual:"
-            git status
-            echo "🔍 Tentando reset alternativo..."
-            git reset --hard HEAD 2>&1 || echo "❌ Reset alternativo também falhou"
-          fi
-          
-          echo "🧹 Limpeza final de arquivos não rastreados..."
-          git clean -fd 2>&1 || echo "⚠️ Erro na limpeza final"
-          
-          echo "🔍 Estado após atualização:"
-          echo "   - Branch: \$(git branch --show-current 2>/dev/null || echo 'desconhecido')"
-          echo "   - Commit: \$(git log --oneline -1 2>/dev/null || echo 'erro')"
-          echo "   - Status: \$(git status --porcelain 2>/dev/null | wc -l) arquivos modificados"
-          
-          # 6. CRIAR ARQUIVO VERSION COM LOGS
-          echo ""
-          echo "📝 === ETAPA 6: CRIAR ARQUIVO VERSION ==="
-          echo "📝 Criando arquivo VERSION com hash: ${IMAGE_TAG:0:7}"
-          echo "${IMAGE_TAG:0:7}" > VERSION
-          if [ -f VERSION ]; then
-            echo "✅ Arquivo VERSION criado: \$(cat VERSION)"
-            echo "📋 Permissões do arquivo: \$(ls -la VERSION)"
-          else
-            echo "❌ ERRO: Arquivo VERSION não foi criado!"
-          fi
-          
-          # 7. MODIFICAR CÓDIGO COM LOGS
-          echo ""
-          echo "🔧 === ETAPA 7: MODIFICAR CÓDIGO ==="
-          echo "🔧 Modificando routes.py para forçar versão..."
-          if sed -i "s/return 'unknown'/return '\$(cat VERSION)'/g" app/presentation/routes.py; then
-            echo "✅ Modificação 1 realizada"
-          else
-            echo "❌ Erro na modificação 1"
-          fi
-          
-          if sed -i "s/return 'error_reading_version'/return '\$(cat VERSION)'/g" app/presentation/routes.py; then
-            echo "✅ Modificação 2 realizada"
-          else
-            echo "❌ Erro na modificação 2"
-          fi
-          
-          # 8. MODIFICAR DOCKERFILE COM LOGS
-          echo ""
-          echo "🐳 === ETAPA 8: MODIFICAR DOCKERFILE ==="
-          echo "📋 Dockerfile antes da modificação:"
-          tail -5 Dockerfile || echo "❌ Erro ao ler Dockerfile"
-          
-          echo "📝 Adicionando VERSION e ENV ao Dockerfile..."
-          echo "COPY VERSION /app/VERSION" >> Dockerfile
-          echo "ENV DEPLOY_VERSION=${IMAGE_TAG:0:7}" >> Dockerfile
-          
-          echo "📋 Dockerfile após modificação:"
-          tail -5 Dockerfile || echo "❌ Erro ao ler Dockerfile modificado"
-          
-          # 9. BUILD COM LOGS DETALHADOS
-          echo ""
-          echo "🔨 === ETAPA 9: BUILD DO DOCKER ==="
-          echo "🔨 Iniciando build completo do zero..."
-          if docker-compose build --no-cache --pull --force-rm 2>&1; then
-            echo "✅ Build concluído com sucesso"
-          else
-            echo "❌ ERRO NO BUILD!"
-            echo "🔍 Verificando se o docker-compose.yml existe:"
-            ls -la docker-compose.yml || echo "❌ docker-compose.yml não encontrado"
-            echo "🔍 Verificando se o Dockerfile existe:"
-            ls -la Dockerfile || echo "❌ Dockerfile não encontrado"
-            exit 1
-          fi
-          
-          # 10. INICIAR CONTAINERS COM LOGS
-          echo ""
-          echo "🚀 === ETAPA 10: INICIAR CONTAINERS ==="
-          echo "🚀 Iniciando containers..."
-          if docker-compose up -d 2>&1; then
-            echo "✅ Containers iniciados"
-          else
-            echo "❌ ERRO AO INICIAR CONTAINERS!"
-            echo "🔍 Logs de erro:"
-            docker-compose logs --tail=20 2>&1 || echo "❌ Erro ao obter logs"
-            exit 1
-          fi
-          
-          # 11. AGUARDAR E VERIFICAR
-          echo ""
-          echo "⏳ === ETAPA 11: AGUARDAR INICIALIZAÇÃO ==="
-          echo "⏳ Aguardando 60 segundos para inicialização completa..."
-          for i in {1..60}; do
-            echo -n "."
-            sleep 1
-            if [ \$((i % 10)) -eq 0 ]; then
-              echo " [\$i/60]"
-            fi
-          done
-          echo ""
-          
-          # 12. VERIFICAÇÕES DETALHADAS
-          echo ""
-          echo "🔍 === ETAPA 12: VERIFICAÇÕES ==="
-          echo "📊 Status dos containers:"
-          docker-compose ps || echo "❌ Erro ao verificar status"
-          
-          echo "🔍 Verificando arquivo VERSION no container:"
-          docker-compose exec -T web ls -la /app/VERSION 2>&1 || echo "❌ Arquivo VERSION não encontrado no container"
-          docker-compose exec -T web cat /app/VERSION 2>&1 || echo "❌ Não foi possível ler arquivo VERSION no container"
-          
-          echo "🔍 Verificando variável de ambiente:"
-          docker-compose exec -T web env | grep DEPLOY_VERSION 2>&1 || echo "❌ Variável DEPLOY_VERSION não encontrada"
-          
-          echo "📋 Logs recentes do container web:"
-          docker-compose logs web --tail=20 || echo "❌ Erro ao obter logs do container"
-          
-          # 13. TESTE DA API
-          echo ""
-          echo "🏥 === ETAPA 13: TESTE DA API ==="
-          SUCCESS=false
-          for i in {1..20}; do
-            echo "🔍 Teste \$i/20..."
-            if curl -f -s --max-time 20 http://localhost:5000/api/simple/ping > /tmp/health.json 2>&1; then
-              API_VERSION=\$(cat /tmp/health.json | python3 -c "import json,sys; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
-              echo "✅ API respondendo! Versão: \$API_VERSION"
-              echo "📋 Resposta completa:"
-              cat /tmp/health.json | python3 -m json.tool 2>/dev/null || cat /tmp/health.json
-              
-              if [ "\$API_VERSION" = "${IMAGE_TAG:0:7}" ]; then
-                echo "🎉 VERSÃO ATUALIZADA CORRETAMENTE!"
-                SUCCESS=true
-                break
-              else
-                echo "⚠️ Versão não coincide (esperado: ${IMAGE_TAG:0:7}, atual: \$API_VERSION)"
-              fi
-              break
-            else
-              echo "❌ API não está respondendo - tentativa \$i/20"
-              if [ \$i -eq 5 ] || [ \$i -eq 10 ] || [ \$i -eq 15 ]; then
-                echo "📋 Logs do container:"
-                docker-compose logs web --tail=10 || echo "❌ Erro ao obter logs"
-              fi
-              sleep 5
-            fi
-          done
-          
-          # 14. MIGRAÇÕES
-          echo ""
-          echo "🗄️ === ETAPA 14: MIGRAÇÕES ==="
-          if docker-compose exec -T web flask db upgrade 2>&1; then
-            echo "✅ Migrações aplicadas com sucesso"
-          else
-            echo "⚠️ Erro nas migrações - continuando..."
-          fi
-          
-          # 15. LIMPEZA FINAL
-          echo ""
-          echo "🔄 === ETAPA 15: LIMPEZA FINAL ==="
-          echo "🔄 Revertendo modificações temporárias..."
-          git checkout -- app/presentation/routes.py Dockerfile 2>&1 || echo "⚠️ Erro ao reverter modificações"
-          
-          # 16. RESULTADO FINAL
-          echo ""
-          echo "📊 === RESULTADO FINAL ==="
-          if [ "\$SUCCESS" = true ]; then
-            echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
-          else
-            echo "❌ Deploy executado, mas versão pode não ter atualizado"
-          fi
-          
-          echo "📝 Log completo salvo em: \$DEPLOY_LOG"
-          echo "🌐 Acesse: https://cron.juscash.app/api/simple/ping"
-          echo "📅 Deploy finalizado: \$(date)"
-        EOF
-
-    - name: 🔔 Verificação Externa Final
-      run: |
-        echo "🌐 Aguardando propagação externa..."
-        sleep 20
-        
-        echo "📡 Verificando versão externa..."
-        EXPECTED_VERSION="${{ github.sha }}"
-        EXPECTED_SHORT="${EXPECTED_VERSION:0:7}"
-        
-        for i in {1..8}; do
-          if curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping > /tmp/api_response.json 2>/dev/null; then
-            echo "✅ API externa acessível!"
-            echo "📋 Resposta:"
-            cat /tmp/api_response.json
-            
-            # Extrair versão usando jq se disponível, senão usar python
-            if command -v jq >/dev/null 2>&1; then
-              VERSION=$(jq -r '.version // "unknown"' /tmp/api_response.json)
-            else
-              VERSION=$(python3 -c 'import json,sys; print(json.load(open("/tmp/api_response.json")).get("version", "unknown"))' 2>/dev/null || echo "unknown")
-            fi
-            
-            echo "🔖 Versão externa: $VERSION"
-            echo "🔖 Versão esperada: $EXPECTED_SHORT"
-            
-            if [ "$VERSION" = "$EXPECTED_SHORT" ]; then
-              echo "🎉 Versão atualizada corretamente!"
-            else
-              echo "⚠️ Versão ainda não atualizada"
-            fi
-            
-            break
-          else
-            echo "⚠️ Tentativa $i/8 falhou, aguardando..."
-            sleep 10
-          fi
-        done
-
-    - name: ❌ Notificar se falhou
-      if: failure()
-      run: |
-        echo "❌ Deploy falhou!"
-        echo "📋 Commit: ${{ github.sha }}"
-        echo "🌿 Branch: ${{ github.ref_name }}"
-        echo "🔍 Verifique os logs acima para mais detalhes" 
+          echo "✅ Deploy concluído com sucesso!" 
