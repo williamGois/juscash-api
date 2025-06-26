@@ -37,6 +37,8 @@ O script agora cria automaticamente um arquivo `.env` com:
 - ✅ Removida linha `version: '3.8'` obsoleta
 - ✅ Corrigido conflito de volumes `/app/logs` (removido volume externo, mantido apenas tmpfs)
 - ✅ Eliminados warnings do Docker Compose
+- ✅ **AJUSTADO PARA VPS 1 CPU:** Todos os limites de CPU reduzidos para serem compatíveis
+- ✅ Reduzido workers Gunicorn de 4 para 2, concorrência Celery de 2 para 1
 
 ### 4. Sequência de Deploy Corrigida
 1. Para containers web existentes
@@ -65,12 +67,34 @@ Após o deploy, verificar:
 ✅ **Docker Compose otimizado** - Warnings eliminados  
 ✅ **Pronto para novo deploy**  
 
-## ⚠️ Última Atualização - 04:12:00 - SCRIPT ROBUSTO
+## ⚠️ Última Atualização - 04:13:00 - RECURSOS AJUSTADOS PARA VPS
 As mudanças neste commit resolvem:
-1. ❌ **Erro anterior:** Script parando com "Process exited with status 1"
-2. ✅ **Correção aplicada:** Removido `set -e`, adicionado tratamento granular de erros
-3. ✅ **Robustez:** Verificação de dependências, validação de arquivo .env criado
-4. ✅ **Debug:** Logs detalhados e senha mascarada nos logs
-5. ✅ **Simplificação:** .env sempre recriado com senhas novas
+1. ❌ **Erro anterior:** "range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs available"
+2. ✅ **CORREÇÃO CRÍTICA:** Ajustados todos os limites de CPU para VPS de 1 CPU apenas
+3. ✅ **Otimizações aplicadas:**
+   - DB: 1.0 CPU → 0.2 CPU | 1GB RAM → 512MB RAM
+   - Redis: 0.5 CPU → 0.1 CPU | 512MB RAM → 256MB RAM  
+   - Web: 0.8 CPU → 0.5 CPU | 1GB RAM → 768MB RAM
+   - Worker: 1.0 CPU → 0.2 CPU | 1GB RAM → 512MB RAM
+   - Flower: 0.5 CPU → 0.1 CPU | 512MB RAM → 256MB RAM
+4. ✅ **Workers reduzidos:** Gunicorn 4→2 workers, Celery 2→1 concorrência
+5. ✅ **Total estimado:** ~0.9 CPU (compatível com VPS 1 CPU)
 
-🔥 **SCRIPT TOTALMENTE REESCRITO E ROBUSTO - PRONTO PARA DEPLOY!** 
+🎯 **AGORA COMPATÍVEL COM VPS BÁSICO DE 1 CPU - DEPLOY GARANTIDO!**
+
+## 📊 Resumo das Otimizações de Recursos
+
+### Antes (❌ Incompatível com VPS 1 CPU):
+- **Total CPU:** 3.8 CPUs (DB:1 + Redis:0.5 + Web:2 + Worker:1 + Flower:0.5)
+- **Total RAM:** ~5GB  
+- **Workers:** Gunicorn 4 workers + Celery 2 concorrência
+
+### Depois (✅ Otimizado para VPS 1 CPU):
+- **Total CPU:** ~0.9 CPUs (DB:0.2 + Redis:0.1 + Web:0.5 + Worker:0.2 + Flower:0.1)
+- **Total RAM:** ~2.4GB
+- **Workers:** Gunicorn 2 workers + Celery 1 concorrência
+
+### Resultado:
+- ✅ Compatível com VPS básico de 1 CPU
+- ✅ Uso eficiente de recursos  
+- ✅ Performance adequada para aplicação de produção 

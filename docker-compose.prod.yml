@@ -21,11 +21,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '0.2'
+          memory: 512M
         reservations:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.05'
+          memory: 128M
     logging:
       driver: "json-file"
       options:
@@ -50,11 +50,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
           cpus: '0.1'
-          memory: 128M
+          memory: 256M
+        reservations:
+          cpus: '0.02'
+          memory: 64M
     logging:
       driver: "json-file"
       options:
@@ -79,7 +79,7 @@ services:
       - FLASK_ENV=production
       - DJE_BASE_URL=${DJE_BASE_URL}
       - PYTHONUNBUFFERED=1
-      - GUNICORN_CMD_ARGS="--workers=4 --threads=2 --worker-class=sync --worker-tmp-dir=/dev/shm --max-requests=1000 --max-requests-jitter=50"
+      - GUNICORN_CMD_ARGS="--workers=2 --threads=2 --worker-class=sync --worker-tmp-dir=/dev/shm --max-requests=1000 --max-requests-jitter=50"
     ports:
       - "127.0.0.1:5000:5000"
     depends_on:
@@ -100,11 +100,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
           cpus: '0.5'
-          memory: 512M
+          memory: 768M
+        reservations:
+          cpus: '0.1'
+          memory: 192M
     logging:
       driver: "json-file"
       options:
@@ -139,15 +139,15 @@ services:
     networks:
       - juscash_network
     entrypoint: ["./docker-entrypoint.sh"]
-    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=2", "--max-tasks-per-child=100"]
+    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1", "--max-tasks-per-child=100"]
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '0.2'
+          memory: 512M
         reservations:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.05'
+          memory: 128M
     logging:
       driver: "json-file"
       options:
@@ -179,11 +179,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
           cpus: '0.1'
-          memory: 128M
+          memory: 256M
+        reservations:
+          cpus: '0.02'
+          memory: 64M
     logging:
       driver: "json-file"
       options:
