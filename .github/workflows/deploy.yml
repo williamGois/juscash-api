@@ -117,13 +117,13 @@ jobs:
               # Extrair POSTGRES_PASSWORD e SECRET_KEY existentes
               export $(grep -E '^POSTGRES_PASSWORD=' .env | xargs) || true
               export $(grep -E '^SECRET_KEY=' .env | xargs) || true
-              POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"$(python3 -c "import secrets,random,string;print(''.join(random.choices(string.ascii_letters+string.digits, k=32)))")}
+              POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(python3 -c 'import secrets,random,string,sys; sys.stdout.write("".join(random.choices(string.ascii_letters+string.digits,k=32)))')}
               SECRET_KEY=${SECRET_KEY:-"$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")}
               log "Senhas existentes reutilizadas: POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
           else
               log "Gerando chaves seguras..."
               SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))") || error_exit "Falha ao gerar SECRET_KEY"
-              POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))") || error_exit "Falha ao gerar POSTGRES_PASSWORD"
+              POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(python3 -c 'import secrets,random,string,sys; sys.stdout.write("".join(random.choices(string.ascii_letters+string.digits,k=32)))')}
 
               log "Criando arquivo .env pela primeira vez..."
               echo "PRODUCTION=true" > .env
