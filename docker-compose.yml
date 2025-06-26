@@ -9,7 +9,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-juscash_db}
       POSTGRES_USER: ${POSTGRES_USER:-juscash}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-juscash123}
-      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=pt_BR.UTF-8"
     ports:
       - "5432:5432"
     volumes:
@@ -44,10 +43,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      cache_from:
-        - python:3.11-slim
-      args:
-        BUILDKIT_INLINE_CACHE: 1
     image: juscash_web:latest
     container_name: juscash_web
     restart: unless-stopped
@@ -69,24 +64,14 @@ services:
       - ./logs:/app/logs
       - ./VERSION:/app/VERSION:ro
     entrypoint: ["./docker-entrypoint.sh"]
-    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "app:create_app()"]
+    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:create_app()"]
     networks:
       - juscash_network
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile
-      cache_from:
-        - juscash_web:latest
     image: juscash_worker:latest
     container_name: juscash_worker
     restart: unless-stopped
@@ -102,29 +87,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      web:
-        condition: service_started
     volumes:
       - ./logs:/app/logs
     entrypoint: ["./docker-entrypoint.sh"]
-    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=2"]
+    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1"]
     networks:
       - juscash_network
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
 
   flower:
     build:
       context: .
       dockerfile: Dockerfile
-      cache_from:
-        - juscash_web:latest
     image: juscash_flower:latest
     container_name: juscash_flower
     restart: unless-stopped
@@ -137,22 +110,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      worker:
-        condition: service_started
     volumes:
       - ./logs:/app/logs
     entrypoint: ["./docker-entrypoint.sh"]  
     command: ["python", "flower-start.py"]
     networks:
       - juscash_network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
 
 volumes:
   postgres_data:
@@ -162,7 +125,4 @@ volumes:
 
 networks:
   juscash_network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16 
+    driver: bridge 
