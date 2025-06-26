@@ -218,15 +218,30 @@ jobs:
         sleep 20
         
         echo "📡 Verificando versão externa..."
+        EXPECTED_VERSION="${{ github.sha }}"
+        EXPECTED_SHORT="${EXPECTED_VERSION:0:7}"
+        
         for i in {1..8}; do
-          if RESPONSE=$(curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping 2>/dev/null); then
+          if curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping > /tmp/api_response.json 2>/dev/null; then
             echo "✅ API externa acessível!"
-            echo "📋 Resposta: $RESPONSE"
+            echo "📋 Resposta:"
+            cat /tmp/api_response.json
             
-            # Extrair versão da resposta
-            VERSION=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+            # Extrair versão usando jq se disponível, senão usar python
+            if command -v jq >/dev/null 2>&1; then
+              VERSION=$(jq -r '.version // "unknown"' /tmp/api_response.json)
+            else
+              VERSION=$(python3 -c 'import json,sys; print(json.load(open("/tmp/api_response.json")).get("version", "unknown"))' 2>/dev/null || echo "unknown")
+            fi
+            
             echo "🔖 Versão externa: $VERSION"
-            echo "🔖 Versão esperada: $(echo "${{ github.sha }}" | cut -c1-7)"
+            echo "🔖 Versão esperada: $EXPECTED_SHORT"
+            
+            if [ "$VERSION" = "$EXPECTED_SHORT" ]; then
+              echo "🎉 Versão atualizada corretamente!"
+            else
+              echo "⚠️ Versão ainda não atualizada"
+            fi
             
             break
           else
