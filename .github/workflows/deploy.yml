@@ -118,7 +118,7 @@ jobs:
               export $(grep -E '^POSTGRES_PASSWORD=' .env | xargs) || true
               export $(grep -E '^SECRET_KEY=' .env | xargs) || true
               POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(python3 -c 'import secrets,random,string,sys; sys.stdout.write("".join(random.choices(string.ascii_letters+string.digits,k=32)))')}
-              SECRET_KEY=${SECRET_KEY:-"$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")}
+              SECRET_KEY=${SECRET_KEY:-$(python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_urlsafe(64))')}
               log "Senhas existentes reutilizadas: POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
           else
               log "Gerando chaves seguras..."
