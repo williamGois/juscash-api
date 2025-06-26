@@ -49,7 +49,7 @@ services:
     volumes:
       - .:/app
       - ./logs:/app/logs
-    command: python run.py
+    command: ["./wait-for-it.sh", "db", "--", "python", "run.py"]
     restart: unless-stopped
     networks:
       - juscash_network
