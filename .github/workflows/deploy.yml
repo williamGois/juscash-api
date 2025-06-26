@@ -166,9 +166,57 @@ jobs:
               sleep 2
           done
           
+          log "Verificando se há incompatibilidade de senha..."
+          # Carrega variáveis do .env
+          export $(cat .env | grep -v '^#' | xargs)
+          
+          # Testa conexão com as credenciais do .env
+          if ! PGPASSWORD=$POSTGRES_PASSWORD docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "SELECT 1;" > /dev/null 2>&1; then
+              log "⚠️ Senha do banco incompatível com .env - recriando containers..."
+              
+              # Para resolver o problema de senha, precisamos recriar os containers
+              # com as credenciais corretas do .env
+              log "Parando containers..."
+              docker-compose -f docker-compose.prod.yml down
+              
+              # IMPORTANTE: Remove o volume do PostgreSQL para forçar recriação com nova senha
+              log "Removendo volume antigo do banco..."
+              docker volume rm juscash_postgres_data 2>/dev/null || true
+              
+              # Recria containers com credenciais do .env
+              log "Recriando containers com novas credenciais..."
+              docker-compose -f docker-compose.prod.yml up -d db redis
+              
+              # Aguarda banco ficar pronto
+              log "Aguardando banco reinicializar..."
+              sleep 15
+              for i in {1..30}; do
+                  if docker-compose -f docker-compose.prod.yml exec -T db pg_isready -U juscash > /dev/null 2>&1; then
+                      log "✓ Banco recriado com sucesso"
+                      break
+                  fi
+                  if [ $i -eq 30 ]; then
+                      log "✗ ERRO: Banco não ficou pronto após recriação"
+                      exit 1
+                  fi
+                  sleep 2
+              done
+          else
+              log "✓ Autenticação com banco de dados OK"
+          fi
+          
           log "Configurando banco de dados..."
-          docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
+          PGPASSWORD=$POSTGRES_PASSWORD docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
           log "✓ Etapa 11/18: Banco de dados criado ou já existente"
+          
+          # Verifica e corrige DATABASE_URL se necessário
+          EXPECTED_DB_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
+          if [ "$DATABASE_URL" != "$EXPECTED_DB_URL" ]; then
+              log "Corrigindo DATABASE_URL no .env..."
+              sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$EXPECTED_DB_URL|" .env
+              export DATABASE_URL="$EXPECTED_DB_URL"
+              log "✓ DATABASE_URL atualizado"
+          fi
           
           log "Construindo nova imagem web..."
           docker-compose -f docker-compose.prod.yml build --no-cache web || error_exit "Falha ao construir imagem web"
