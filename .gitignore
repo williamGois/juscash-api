@@ -42,7 +42,12 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Environment files - NEVER commit credentials
 .env
+.env.local
+.env.production
+.env.staging
+.env.*
 .venv
 env/
 venv/

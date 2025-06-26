@@ -4,16 +4,16 @@ services:
     container_name: juscash_db_prod
     restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-juscash_db}
-      POSTGRES_USER: ${POSTGRES_USER:-juscash}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-juscash123}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - juscash_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-juscash} -d ${POSTGRES_DB:-juscash_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -73,14 +73,14 @@ services:
     container_name: juscash_web_prod
     restart: always
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
       - FLASK_ENV=production
-      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
-      - POSTGRES_DB=${POSTGRES_DB:-juscash_db}
-      - POSTGRES_USER=${POSTGRES_USER:-juscash}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-juscash123}
+      - DJE_BASE_URL=${DJE_BASE_URL}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - PYTHONUNBUFFERED=1
       - GUNICORN_CMD_ARGS="--workers=2 --threads=2 --worker-class=sync --worker-tmp-dir=/dev/shm --max-requests=1000 --max-requests-jitter=50"
     ports:
@@ -125,14 +125,14 @@ services:
     container_name: juscash_worker_prod
     restart: always
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
       - FLASK_ENV=production
-      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
-      - POSTGRES_DB=${POSTGRES_DB:-juscash_db}
-      - POSTGRES_USER=${POSTGRES_USER:-juscash}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-juscash123}
+      - DJE_BASE_URL=${DJE_BASE_URL}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - PYTHONUNBUFFERED=1
       - C_FORCE_ROOT=true
     depends_on:
@@ -167,10 +167,10 @@ services:
     container_name: juscash_flower_prod
     restart: always
     environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
       - PYTHONUNBUFFERED=1
-      - FLOWER_BASIC_AUTH=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-juscash2024}
+      - FLOWER_BASIC_AUTH=${FLOWER_USER:-admin}:${FLOWER_PASSWORD}
     ports:
       - "127.0.0.1:5555:5555"
     depends_on:
