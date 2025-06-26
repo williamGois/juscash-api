@@ -181,7 +181,7 @@ services:
     networks:
       - juscash_network
     entrypoint: ["./docker-entrypoint.sh"]
-    command: ["python", "flower-start.py"]
+    command: ["celery", "-A", "celery_worker.celery", "flower", "--address=0.0.0.0", "--port=5555"]
     deploy:
       resources:
         limits:
