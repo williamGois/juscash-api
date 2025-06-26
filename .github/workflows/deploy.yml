@@ -168,11 +168,22 @@ jobs:
           
           log "Verificando se há incompatibilidade de senha..."
           # Carrega variáveis do .env
-          export $(cat .env | grep -v '^#' | xargs)
+          source .env
+          export POSTGRES_PASSWORD
+          export POSTGRES_USER
+          export POSTGRES_DB
+          
+          log "DEBUG: POSTGRES_USER=$POSTGRES_USER"
+          log "DEBUG: POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
+          log "DEBUG: POSTGRES_DB=$POSTGRES_DB"
           
           # Testa conexão com as credenciais do .env
-          if ! PGPASSWORD=$POSTGRES_PASSWORD docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "SELECT 1;" > /dev/null 2>&1; then
+          log "Testando conexão com banco..."
+          if PGPASSWORD="$POSTGRES_PASSWORD" docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "SELECT 1;" > /dev/null 2>&1; then
+              log "✓ Autenticação com banco de dados OK"
+          else
               log "⚠️ Senha do banco incompatível com .env - recriando containers..."
+              log "Erro de conexão detectado, iniciando processo de correção..."
               
               # Para resolver o problema de senha, precisamos recriar os containers
               # com as credenciais corretas do .env
@@ -201,12 +212,10 @@ jobs:
                   fi
                   sleep 2
               done
-          else
-              log "✓ Autenticação com banco de dados OK"
           fi
           
           log "Configurando banco de dados..."
-          PGPASSWORD=$POSTGRES_PASSWORD docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
+          PGPASSWORD="$POSTGRES_PASSWORD" docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB;" 2>/dev/null || true
           log "✓ Etapa 11/18: Banco de dados criado ou já existente"
           
           # Verifica e corrige DATABASE_URL se necessário
