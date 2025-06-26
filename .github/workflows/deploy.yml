@@ -114,6 +114,8 @@ jobs:
           
           if [ -f .env ]; then
               log "Arquivo .env já existe - reutilizando variáveis existentes"
+              log "Conteúdo atual do .env (primeiras 5 linhas):"
+              head -5 .env | sed 's/PASSWORD=.*/PASSWORD=***/' | sed 's/SECRET_KEY=.*/SECRET_KEY=***/'
               # Extrair POSTGRES_PASSWORD e SECRET_KEY existentes
               export $(grep -E '^POSTGRES_PASSWORD=' .env | xargs) || true
               export $(grep -E '^SECRET_KEY=' .env | xargs) || true
@@ -198,6 +200,13 @@ jobs:
                   else
                       log "⚠️ Aplicação ainda não está respondendo..."
                   fi
+              elif docker-compose -f docker-compose.prod.yml ps | grep -q "juscash_web_prod.*Restarting"; then
+                  log "⚠️ Container web está reiniciando - capturando logs de erro..."
+                  log "=== LOGS DO CONTAINER WEB (RESTARTING) ==="
+                  docker-compose -f docker-compose.prod.yml logs --tail=50 web
+                  log "=== LOGS DO BANCO DE DADOS ==="
+                  docker-compose -f docker-compose.prod.yml logs db | tail -20
+                  log "Aguardando próxima verificação..."
               else
                   log "❌ Container web não está mais rodando!"
                   log "=== LOGS COMPLETOS DO CONTAINER WEB ==="
