@@ -65,29 +65,79 @@ echo "🔄 Recarregando nginx..."
 systemctl reload nginx
 echo "✅ Nginx recarregado"
 
-# Obter certificados SSL
+# Primeiro configurar HTTP apenas
 echo ""
-echo "🔐 Configurando certificados SSL..."
+echo "🔧 Configurando versões HTTP temporárias..."
 
-# Lista de subdomínios
-SUBDOMAINS=("portainer.juscash.app" "cadvisor.juscash.app" "flower.juscash.app")
+# Criar configurações HTTP temporárias
+for subdomain in portainer.juscash.app cadvisor.juscash.app flower.juscash.app; do
+    case $subdomain in
+        "portainer.juscash.app")
+            port=9000
+            ;;
+        "cadvisor.juscash.app")
+            port=8080
+            ;;
+        "flower.juscash.app")
+            port=5555
+            ;;
+    esac
+    
+    cat > /etc/nginx/sites-available/${subdomain}-temp.conf << EOF
+server {
+    listen 80;
+    server_name ${subdomain};
+    
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+    
+    ln -sf /etc/nginx/sites-available/${subdomain}-temp.conf /etc/nginx/sites-enabled/
+    echo "✅ HTTP temporário configurado para $subdomain"
+done
 
-for subdomain in "${SUBDOMAINS[@]}"; do
+# Remover configurações HTTPS temporariamente
+rm -f /etc/nginx/sites-enabled/portainer.juscash.app.conf
+rm -f /etc/nginx/sites-enabled/cadvisor.juscash.app.conf  
+rm -f /etc/nginx/sites-enabled/flower.juscash.app.conf
+
+# Testar e recarregar nginx
+nginx -t && systemctl reload nginx
+
+echo ""
+echo "🔐 Obtendo certificados SSL..."
+
+# Obter certificados individuais
+for subdomain in portainer.juscash.app cadvisor.juscash.app flower.juscash.app; do
     echo "📜 Obtendo certificado para $subdomain..."
     
-    # Verificar se certificado já existe
-    if [ -f "/etc/letsencrypt/live/juscash.app/fullchain.pem" ]; then
-        echo "ℹ️  Certificado base já existe, expandindo..."
-        certbot --nginx -d $subdomain --non-interactive --agree-tos --email admin@juscash.app --expand || {
-            echo "⚠️  Falha ao expandir certificado para $subdomain"
-        }
-    else
-        echo "📜 Criando novo certificado para $subdomain..."
+    certbot certonly --webroot -w /var/www/html -d $subdomain --non-interactive --agree-tos --email admin@juscash.app --force-renewal || {
+        echo "⚠️  Tentando método nginx para $subdomain..."
         certbot --nginx -d $subdomain --non-interactive --agree-tos --email admin@juscash.app || {
-            echo "⚠️  Falha ao criar certificado para $subdomain"
+            echo "❌ Falha ao obter certificado para $subdomain"
+            continue
         }
-    fi
+    }
+    
+    echo "✅ Certificado obtido para $subdomain"
 done
+
+echo ""
+echo "🔧 Ativando configurações HTTPS..."
+
+# Remover configurações temporárias HTTP
+rm -f /etc/nginx/sites-enabled/*-temp.conf
+
+# Ativar configurações HTTPS completas
+ln -sf /etc/nginx/sites-available/portainer.juscash.app.conf /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/cadvisor.juscash.app.conf /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/flower.juscash.app.conf /etc/nginx/sites-enabled/
 
 # Verificar status dos serviços
 echo ""
