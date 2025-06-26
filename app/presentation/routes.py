@@ -1005,6 +1005,120 @@ class EnvCheck(Resource):
         
         return env_check
 
+@simple_ns.route('/dashboard')
+class DockerDashboard(Resource):
+    @simple_ns.doc('docker_dashboard')
+    def get(self):
+        """Dashboard visual dos containers Docker"""
+        import os
+        import subprocess
+        from datetime import datetime
+        
+        dashboard = {
+            'timestamp': datetime.now().isoformat(),
+            'server_info': {},
+            'containers': {},
+            'monitoring_urls': {},
+            'system_stats': {}
+        }
+        
+        # Informações do servidor
+        dashboard['server_info'] = {
+            'hostname': os.environ.get('HOSTNAME', 'unknown'),
+            'in_docker': os.path.exists('/.dockerenv'),
+            'platform': 'Docker Container' if os.path.exists('/.dockerenv') else 'Host System'
+        }
+        
+        # URLs de monitoramento
+        dashboard['monitoring_urls'] = {
+            'portainer': 'http://77.37.68.178:9000',
+            'cadvisor': 'http://77.37.68.178:8080',
+            'flower': 'http://77.37.68.178:5555',
+            'api_docs': 'https://cron.juscash.app/docs/',
+            'health_checks': {
+                'api': 'https://cron.juscash.app/api/simple/ping',
+                'database': 'https://cron.juscash.app/api/publicacoes/health',
+                'env_check': 'https://cron.juscash.app/api/simple/env-check'
+            }
+        }
+        
+        # Tentar obter informações dos containers (se docker estiver disponível)
+        try:
+            # Verificar se docker command está disponível
+            result = subprocess.run(['docker', 'ps', '--format', 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) > 1:  # Skip header
+                    containers = []
+                    for line in lines[1:]:
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            containers.append({
+                                'name': parts[0],
+                                'status': parts[1],
+                                'ports': parts[2] if len(parts) > 2 else 'N/A'
+                            })
+                    dashboard['containers']['list'] = containers
+                    dashboard['containers']['count'] = len(containers)
+                else:
+                    dashboard['containers']['error'] = 'No containers found'
+            else:
+                dashboard['containers']['error'] = 'Docker command failed'
+        except Exception as e:
+            dashboard['containers']['error'] = f'Cannot access Docker: {str(e)}'
+        
+        # Estatísticas básicas do sistema
+        try:
+            # Informações de CPU e memória se disponível
+            if os.path.exists('/proc/loadavg'):
+                with open('/proc/loadavg', 'r') as f:
+                    load_avg = f.read().strip().split()
+                    dashboard['system_stats']['load_average'] = load_avg[0]
+            
+            if os.path.exists('/proc/meminfo'):
+                with open('/proc/meminfo', 'r') as f:
+                    meminfo = {}
+                    for line in f.readlines()[:3]:  # Just first 3 lines
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            meminfo[key.strip()] = value.strip()
+                    dashboard['system_stats']['memory'] = meminfo
+        except Exception as e:
+            dashboard['system_stats']['error'] = str(e)
+        
+        return dashboard
+
+@simple_ns.route('/dashboard-ui')
+class DashboardUI(Resource):
+    @simple_ns.doc('dashboard_ui')
+    def get(self):
+        """Interface visual do dashboard (HTML)"""
+        from flask import make_response
+        import os
+        
+        try:
+            # Caminho para o template
+            template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'templates', 'dashboard.html')
+            
+            with open(template_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            response = make_response(html_content)
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+            return response
+            
+        except FileNotFoundError:
+            return {
+                'error': 'Dashboard template not found',
+                'message': 'Use /api/simple/dashboard para versão JSON'
+            }, 404
+        except Exception as e:
+            return {
+                'error': str(e),
+                'message': 'Erro ao carregar dashboard UI'
+            }, 500
+
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
     # Registrar primeiro os namespaces principais

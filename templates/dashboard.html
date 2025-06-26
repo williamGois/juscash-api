@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JusCash - Dashboard Docker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h2 {
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card-icon {
+            width: 24px;
+            height: 24px;
+            background: #667eea;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-running { background: #10b981; }
+        .status-stopped { background: #ef4444; }
+        .status-unknown { background: #f59e0b; }
+        
+        .container-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .container-name {
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .container-status {
+            font-size: 0.9em;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        
+        .monitoring-links {
+            display: grid;
+            gap: 10px;
+        }
+        
+        .monitoring-link {
+            display: block;
+            padding: 12px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #475569;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+        
+        .monitoring-link:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            color: #64748b;
+            font-weight: 500;
+        }
+        
+        .stat-value {
+            color: #1e293b;
+            font-weight: 600;
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 15px 25px;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.2s ease;
+        }
+        
+        .refresh-btn:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        
+        .error {
+            color: #ef4444;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #64748b;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐳 JusCash Docker Dashboard</h1>
+            <p>Monitoramento visual dos containers e serviços</p>
+        </div>
+        
+        <div class="dashboard-grid">
+            <!-- Containers Status -->
+            <div class="card">
+                <h2>
+                    <span class="card-icon"></span>
+                    Containers Docker
+                </h2>
+                <div id="containers-content" class="loading">
+                    Carregando informações dos containers...
+                </div>
+            </div>
+            
+            <!-- Monitoring Tools -->
+            <div class="card">
+                <h2>
+                    <span class="card-icon"></span>
+                    Ferramentas de Monitoramento
+                </h2>
+                <div class="monitoring-links">
+                    <a href="http://77.37.68.178:9000" target="_blank" class="monitoring-link">
+                        🎛️ Portainer - Interface Docker Visual
+                    </a>
+                    <a href="http://77.37.68.178:8080" target="_blank" class="monitoring-link">
+                        📊 cAdvisor - Métricas de Containers
+                    </a>
+                    <a href="http://77.37.68.178:5555" target="_blank" class="monitoring-link">
+                        🌸 Flower - Monitor Celery
+                    </a>
+                    <a href="https://cron.juscash.app/docs/" target="_blank" class="monitoring-link">
+                        📚 API Documentation (Swagger)
+                    </a>
+                </div>
+            </div>
+            
+            <!-- System Stats -->
+            <div class="card">
+                <h2>
+                    <span class="card-icon"></span>
+                    Estatísticas do Sistema
+                </h2>
+                <div id="system-stats" class="loading">
+                    Carregando estatísticas...
+                </div>
+            </div>
+            
+            <!-- Health Checks -->
+            <div class="card">
+                <h2>
+                    <span class="card-icon"></span>
+                    Health Checks
+                </h2>
+                <div class="monitoring-links">
+                    <a href="https://cron.juscash.app/api/simple/ping" target="_blank" class="monitoring-link">
+                        ❤️ API Health Check
+                    </a>
+                    <a href="https://cron.juscash.app/api/publicacoes/health" target="_blank" class="monitoring-link">
+                        🗄️ Database Health Check
+                    </a>
+                    <a href="https://cron.juscash.app/api/simple/env-check" target="_blank" class="monitoring-link">
+                        🔧 Environment Check
+                    </a>
+                    <a href="https://cron.juscash.app/api/simple/dashboard" target="_blank" class="monitoring-link">
+                        📊 Dashboard API (JSON)
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <button class="refresh-btn" onclick="loadDashboard()">
+        🔄 Atualizar
+    </button>
+    
+    <script>
+        async function loadDashboard() {
+            try {
+                const response = await fetch('/api/simple/dashboard');
+                const data = await response.json();
+                
+                // Update containers
+                updateContainers(data.containers);
+                
+                // Update system stats
+                updateSystemStats(data.system_stats);
+                
+            } catch (error) {
+                console.error('Erro ao carregar dashboard:', error);
+                document.getElementById('containers-content').innerHTML = 
+                    '<div class="error">Erro ao carregar informações dos containers</div>';
+                document.getElementById('system-stats').innerHTML = 
+                    '<div class="error">Erro ao carregar estatísticas do sistema</div>';
+            }
+        }
+        
+        function updateContainers(containers) {
+            const containersDiv = document.getElementById('containers-content');
+            
+            if (containers.error) {
+                containersDiv.innerHTML = `<div class="error">${containers.error}</div>`;
+                return;
+            }
+            
+            if (containers.list && containers.list.length > 0) {
+                let html = `<div style="margin-bottom: 10px;"><strong>Total: ${containers.count} containers</strong></div>`;
+                
+                containers.list.forEach(container => {
+                    const statusClass = container.status.toLowerCase().includes('up') ? 'status-running' : 
+                                      container.status.toLowerCase().includes('exit') ? 'status-stopped' : 'status-unknown';
+                    
+                    html += `
+                        <div class="container-item">
+                            <div class="container-name">
+                                <span class="status-indicator ${statusClass}"></span>
+                                ${container.name}
+                            </div>
+                            <div class="container-status">
+                                Status: ${container.status}<br>
+                                Portas: ${container.ports}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                containersDiv.innerHTML = html;
+            } else {
+                containersDiv.innerHTML = '<div class="loading">Nenhum container encontrado</div>';
+            }
+        }
+        
+        function updateSystemStats(stats) {
+            const statsDiv = document.getElementById('system-stats');
+            
+            if (stats.error) {
+                statsDiv.innerHTML = `<div class="error">${stats.error}</div>`;
+                return;
+            }
+            
+            let html = '';
+            
+            if (stats.load_average) {
+                html += `
+                    <div class="stat-item">
+                        <span class="stat-label">Load Average</span>
+                        <span class="stat-value">${stats.load_average}</span>
+                    </div>
+                `;
+            }
+            
+            if (stats.memory) {
+                Object.entries(stats.memory).forEach(([key, value]) => {
+                    html += `
+                        <div class="stat-item">
+                            <span class="stat-label">${key}</span>
+                            <span class="stat-value">${value}</span>
+                        </div>
+                    `;
+                });
+            }
+            
+            if (html === '') {
+                html = '<div class="loading">Estatísticas não disponíveis</div>';
+            }
+            
+            statsDiv.innerHTML = html;
+        }
+        
+        // Load dashboard on page load
+        document.addEventListener('DOMContentLoaded', loadDashboard);
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadDashboard, 30000);
+    </script>
+</body>
+</html>
