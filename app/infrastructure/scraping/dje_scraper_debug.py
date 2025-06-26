@@ -33,6 +33,10 @@ class DJEScraperDebug:
         """Configurações do Chrome - com opção visual para debug"""
         chrome_options = Options()
         
+        # Configurar display virtual se disponível
+        if 'DISPLAY' not in os.environ:
+            os.environ['DISPLAY'] = ':99'
+        
         # MODO VISUAL: Comentar --headless para ver o Chrome
         if not self.visual_mode:
             chrome_options.add_argument("--headless")
@@ -41,9 +45,10 @@ class DJEScraperDebug:
             # Para modo visual, usar configurações mais simples
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument("--display=:99")
             return chrome_options
         
-        # Configurações para modo headless (produção)
+        # Configurações essenciais para container
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
@@ -66,6 +71,11 @@ class DJEScraperDebug:
         chrome_options.add_argument("--disable-popup-blocking")
         chrome_options.add_argument("--aggressive-cache-discard")
         chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--display=:99")
+        chrome_options.add_argument("--remote-debugging-port=9222")
+        chrome_options.add_argument("--disable-crash-reporter")
+        chrome_options.add_argument("--disable-logging")
+        chrome_options.add_argument("--disable-in-process-stack-traces")
         
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -79,25 +89,44 @@ class DJEScraperDebug:
         """Inicializa o driver com configurações de debug"""
         chrome_options = self._get_chrome_options()
         
+        # Configurar display virtual
+        if 'DISPLAY' not in os.environ:
+            os.environ['DISPLAY'] = ':99'
+            print("🖥️ Display configurado para :99")
+        
         for attempt in range(self.max_retries):
             try:
                 logging.info(f"🚀 Tentativa {attempt + 1} de inicializar Chrome driver...")
                 
                 if self.visual_mode:
-                    print(f"🎯 Modo: VISUAL (Chrome será visível)")
+                    print(f"🎯 Modo: VISUAL (Chrome será visível no display {os.environ.get('DISPLAY', 'padrão')})")
                 else:
                     print(f"🎯 Modo: HEADLESS (Chrome oculto)")
                 
+                # Usar chromium-driver diretamente
                 try:
-                    service = Service(ChromeDriverManager().install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    logging.info("✅ Driver inicializado com webdriver-manager")
+                    self.driver = webdriver.Chrome(
+                        service=Service('/usr/bin/chromium-driver'),
+                        options=chrome_options
+                    )
+                    logging.info("✅ Driver inicializado com chromium-driver")
                     break
                 except Exception as e:
-                    logging.warning(f"Webdriver-manager falhou, tentando com o Chrome do sistema: {e}")
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                    logging.info("✅ Driver inicializado com Chrome do sistema")
-                    break
+                    logging.warning(f"Chromium-driver falhou: {e}")
+                    
+                    # Fallback para webdriver-manager
+                    try:
+                        service = Service(ChromeDriverManager().install())
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        logging.info("✅ Driver inicializado com webdriver-manager")
+                        break
+                    except Exception as e2:
+                        logging.warning(f"Webdriver-manager falhou: {e2}")
+                        
+                        # Último fallback para Chrome do sistema
+                        self.driver = webdriver.Chrome(options=chrome_options)
+                        logging.info("✅ Driver inicializado com Chrome do sistema")
+                        break
             
             except Exception as e:
                 logging.error(f"❌ Erro na tentativa {attempt + 1}: {e}")
