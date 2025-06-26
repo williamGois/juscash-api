@@ -60,6 +60,10 @@ jobs:
               echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
           }
           
+          # Desabilita saída imediata em caso de erro para permitir tentativas
+          set +e
+          set +o pipefail
+          
           error_exit() {
               log "❌ ERRO na etapa: $1"
               log "Logs de debug salvos em: $LOG_FILE"
