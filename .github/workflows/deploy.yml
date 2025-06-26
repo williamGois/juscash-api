@@ -99,6 +99,7 @@ jobs:
           log "✓ Etapa 6/16: Imagem antiga do web removida"
           
           # 7. Criar arquivo VERSION
+          rm -rf VERSION
           echo "${{ github.sha }}" > VERSION
           log "✓ Etapa 7/16: Arquivo VERSION criado com hash: ${{ github.sha }}"
           
