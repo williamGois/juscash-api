@@ -9,6 +9,29 @@ Este projeto agora implementa práticas de segurança adequadas:
 
 ## 🚀 Setup na VPS
 
+### 🚨 **CORREÇÃO IMEDIATA DO ERRO ATUAL**
+
+Se você está vendo erro de autenticação, execute estes passos:
+
+```bash
+# 1. Ir para o diretório do projeto
+cd /caminho/para/juscash-api
+
+# 2. Fazer pull do código atualizado
+git pull origin master
+
+# 3. Parar containers atuais
+docker-compose -f docker-compose.prod.yml down
+
+# 4. Limpar volumes do PostgreSQL (REMOVE DADOS!)
+docker volume rm $(docker volume ls -q | grep postgres)
+
+# 5. Restart com valores padrão (temporário)
+docker-compose -f docker-compose.prod.yml up --build -d
+```
+
+### 📋 **Setup Completo e Seguro:**
+
 ### 1. Fazer pull do código atualizado
 ```bash
 cd /caminho/para/juscash-api
@@ -57,7 +80,13 @@ docker-compose -f docker-compose.prod.yml logs web
 docker-compose -f docker-compose.prod.yml logs db
 ```
 
-### 8. Criar tabela do banco
+### 8. Verificar variáveis de ambiente
+```bash
+# NOVO: Endpoint de diagnóstico (não mostra senhas)
+curl https://cron.juscash.app/api/simple/env-check
+```
+
+### 9. Criar tabela do banco
 ```bash
 # Acessar endpoint para criar tabela
 curl https://cron.juscash.app/api/publicacoes/setup-database
@@ -68,6 +97,9 @@ curl https://cron.juscash.app/api/publicacoes/setup-database
 ```bash
 # Health check geral
 curl https://cron.juscash.app/api/simple/ping
+
+# Diagnóstico de variáveis (sem mostrar senhas)
+curl https://cron.juscash.app/api/simple/env-check
 
 # Health check específico das publicações
 curl https://cron.juscash.app/api/publicacoes/health

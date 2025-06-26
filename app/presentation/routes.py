@@ -951,6 +951,58 @@ class SimplePing(Resource):
             'version': get_version()
         }
 
+@simple_ns.route('/env-check')
+class EnvCheck(Resource):
+    @simple_ns.doc('env_check')
+    def get(self):
+        """Diagnóstico de variáveis de ambiente (sem exibir senhas)"""
+        import os
+        from flask import current_app
+        
+        env_check = {
+            'timestamp': datetime.now().isoformat(),
+            'flask_config': {},
+            'os_environ': {},
+            'docker_detection': {},
+            'database': {}
+        }
+        
+        # Verificar configuração do Flask
+        database_url = current_app.config.get('DATABASE_URL')
+        env_check['flask_config'] = {
+            'DATABASE_URL_exists': database_url is not None,
+            'DATABASE_URL_preview': database_url[:30] + '***' if database_url else None,
+            'REDIS_URL_exists': current_app.config.get('REDIS_URL') is not None,
+            'SECRET_KEY_exists': current_app.config.get('SECRET_KEY') is not None
+        }
+        
+        # Verificar variáveis de ambiente
+        env_vars = ['DATABASE_URL', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'REDIS_URL', 'SECRET_KEY']
+        for var in env_vars:
+            value = os.environ.get(var)
+            env_check['os_environ'][var] = {
+                'exists': value is not None,
+                'preview': value[:20] + '***' if value and len(value) > 20 else ('SET' if value else None)
+            }
+        
+        # Detectar ambiente Docker
+        env_check['docker_detection'] = {
+            'in_docker': os.path.exists('/.dockerenv'),
+            'hostname': os.environ.get('HOSTNAME', 'unknown'),
+            'container_name': os.environ.get('CONTAINER_NAME', 'unknown')
+        }
+        
+        # Teste básico de banco
+        try:
+            from app import db
+            db.engine.execute('SELECT 1')
+            env_check['database']['connection'] = 'success'
+        except Exception as e:
+            env_check['database']['connection'] = 'failed'
+            env_check['database']['error'] = str(e)[:100]
+        
+        return env_check
+
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
     # Registrar primeiro os namespaces principais
