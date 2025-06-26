@@ -30,10 +30,9 @@ def main():
     if not wait_for_redis(redis_url):
         sys.exit(1)
     
-    app = Celery('juscash')
-    app.config_from_object('config')
+    from celery_worker import celery
     
-    flower_app = Flower(capp=app, address='0.0.0.0', port=5555)
+    flower_app = Flower(capp=celery, address='0.0.0.0', port=5555)
     
     basic_auth = os.getenv('FLOWER_BASIC_AUTH')
     if basic_auth:
