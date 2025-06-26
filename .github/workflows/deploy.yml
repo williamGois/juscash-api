@@ -219,18 +219,18 @@ jobs:
         
         echo "📡 Verificando versão externa..."
         for i in {1..8}; do
-          if RESPONSE=\$(curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping 2>/dev/null); then
+          if RESPONSE=$(curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping 2>/dev/null); then
             echo "✅ API externa acessível!"
-            echo "📋 Resposta: \$RESPONSE"
+            echo "📋 Resposta: $RESPONSE"
             
             # Extrair versão da resposta
-            VERSION=\$(echo "\$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
-            echo "🔖 Versão externa: \$VERSION"
-            echo "🔖 Versão esperada: ${{ github.sha }}".substring(0,7)
+            VERSION=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+            echo "🔖 Versão externa: $VERSION"
+            echo "🔖 Versão esperada: $(echo "${{ github.sha }}" | cut -c1-7)"
             
             break
           else
-            echo "⚠️ Tentativa \$i/8 falhou, aguardando..."
+            echo "⚠️ Tentativa $i/8 falhou, aguardando..."
             sleep 10
           fi
         done
