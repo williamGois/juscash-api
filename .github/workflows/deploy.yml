@@ -141,17 +141,9 @@ jobs:
           
           # Se conseguiu conectar com postgres, criar usuário e banco
           if docker-compose exec -T db psql -U postgres -c "SELECT 1" > /dev/null 2>&1; then
-              docker-compose exec -T db psql -U postgres <<'EOSQL' || true
-              DO $$
-              BEGIN
-                  IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'juscash') THEN
-                      CREATE USER juscash WITH PASSWORD 'juscash123';
-                  END IF;
-              END$$;
-              
-              CREATE DATABASE juscash_db OWNER juscash;
-              GRANT ALL PRIVILEGES ON DATABASE juscash_db TO juscash;
-EOSQL
+              docker-compose exec -T db psql -U postgres -c "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'juscash') THEN CREATE ROLE juscash LOGIN PASSWORD 'juscash123'; END IF; END\$\$;"
+              docker-compose exec -T db psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'juscash_db'" | grep -q 1 || docker-compose exec -T db createdb -U postgres -O juscash juscash_db
+              docker-compose exec -T db psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE juscash_db TO juscash;"
               log "✓ Etapa 11/16: Usuário e banco criados/verificados"
           fi
           
