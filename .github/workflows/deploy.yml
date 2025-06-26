@@ -112,35 +112,39 @@ jobs:
           
           log "✓ Etapa 8/18: Configurando ambiente de produção"
           
-          log "Gerando chaves seguras..."
-          SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))") || error_exit "Falha ao gerar SECRET_KEY"
-          POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))") || error_exit "Falha ao gerar POSTGRES_PASSWORD"
-          
-          log "Criando novo arquivo .env..."
-          rm -f .env
-          echo "PRODUCTION=true" > .env
-          echo "FLASK_ENV=production" >> .env
-          echo "SECRET_KEY=${SECRET_KEY}" >> .env
-          echo "POSTGRES_DB=juscash_db" >> .env
-          echo "POSTGRES_USER=juscash" >> .env
-          echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> .env
-          echo "DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db" >> .env
-          echo "REDIS_URL=redis://redis:6379/0" >> .env
-          echo "DJE_BASE_URL=https://dje.tjsp.jus.br/cdje" >> .env
-          echo "SCRAPING_ENABLED=true" >> .env
-          echo "DAILY_SCRAPING_SCHEDULE=3600" >> .env
-          echo "WEEKLY_SCRAPING_SCHEDULE=604800" >> .env
-          echo "CLEANUP_SCHEDULE=86400" >> .env
-          echo "DB_POOL_SIZE=10" >> .env
-          echo "DB_POOL_RECYCLE=300" >> .env
-          echo "FLOWER_USER=admin" >> .env
-          echo "FLOWER_PASSWORD=juscash2024" >> .env
-          
-          if [ ! -f .env ]; then
-              error_exit "Arquivo .env não foi criado"
+          if [ -f .env ]; then
+              log "Arquivo .env já existe - reutilizando variáveis existentes"
+              # Extrair POSTGRES_PASSWORD e SECRET_KEY existentes
+              export $(grep -E '^POSTGRES_PASSWORD=' .env | xargs) || true
+              export $(grep -E '^SECRET_KEY=' .env | xargs) || true
+              POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"$(python3 -c "import secrets,random,string;print(''.join(random.choices(string.ascii_letters+string.digits, k=32)))")}
+              SECRET_KEY=${SECRET_KEY:-"$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")}
+              log "Senhas existentes reutilizadas: POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
+          else
+              log "Gerando chaves seguras..."
+              SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))") || error_exit "Falha ao gerar SECRET_KEY"
+              POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))") || error_exit "Falha ao gerar POSTGRES_PASSWORD"
+
+              log "Criando arquivo .env pela primeira vez..."
+              echo "PRODUCTION=true" > .env
+              echo "FLASK_ENV=production" >> .env
+              echo "SECRET_KEY=${SECRET_KEY}" >> .env
+              echo "POSTGRES_DB=juscash_db" >> .env
+              echo "POSTGRES_USER=juscash" >> .env
+              echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> .env
+              echo "DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db" >> .env
+              echo "REDIS_URL=redis://redis:6379/0" >> .env
+              echo "DJE_BASE_URL=https://dje.tjsp.jus.br/cdje" >> .env
+              echo "SCRAPING_ENABLED=true" >> .env
+              echo "DAILY_SCRAPING_SCHEDULE=3600" >> .env
+              echo "WEEKLY_SCRAPING_SCHEDULE=604800" >> .env
+              echo "CLEANUP_SCHEDULE=86400" >> .env
+              echo "DB_POOL_SIZE=10" >> .env
+              echo "DB_POOL_RECYCLE=300" >> .env
+              echo "FLOWER_USER=admin" >> .env
+              echo "FLOWER_PASSWORD=juscash2024" >> .env
+              log "✓ Arquivo .env criado com POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
           fi
-          
-          log "✓ Arquivo .env criado com senhas seguras: POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
           
           log "Iniciando banco de dados e Redis..."
           docker-compose -f docker-compose.prod.yml up -d db redis || error_exit "Falha ao iniciar banco de dados e Redis"
