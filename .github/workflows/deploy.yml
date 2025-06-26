@@ -169,14 +169,56 @@ jobs:
           log "✓ Etapa 13/18: Container web iniciado"
           
           log "Aguardando aplicação iniciar..."
-          sleep 30
           
-          if docker-compose -f docker-compose.prod.yml ps | grep -q "juscash_web_prod.*Up"; then
-              log "✓ Etapa 14/18: Container web está rodando"
+          for i in {1..6}; do
+              log "Verificação $i/6: Aguardando 10 segundos..."
+              sleep 10
+              
+              log "Status atual dos containers:"
+              docker-compose -f docker-compose.prod.yml ps
+              
+              if docker-compose -f docker-compose.prod.yml ps | grep -q "juscash_web_prod.*Up"; then
+                  log "✓ Container web ainda está rodando"
+                  
+                  log "Verificando se aplicação responde:"
+                  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/simple/ping || echo "000")
+                  log "Status HTTP da aplicação: $HTTP_STATUS"
+                  
+                  if [ "$HTTP_STATUS" = "200" ]; then
+                      log "🎉 Aplicação está respondendo corretamente!"
+                      break
+                  else
+                      log "⚠️ Aplicação ainda não está respondendo..."
+                  fi
+              else
+                  log "❌ Container web não está mais rodando!"
+                  log "=== LOGS COMPLETOS DO CONTAINER WEB ==="
+                  docker-compose -f docker-compose.prod.yml logs web
+                  log "=== LOGS DO BANCO DE DADOS ==="
+                  docker-compose -f docker-compose.prod.yml logs db | tail -20
+                  log "=== LOGS DO REDIS ==="
+                  docker-compose -f docker-compose.prod.yml logs redis | tail -20
+                  error_exit "Container web crashou durante inicialização na verificação $i"
+              fi
+              
+              log "Logs recentes do container web:"
+              docker-compose -f docker-compose.prod.yml logs --tail=5 web
+              
+              if [ $i -eq 6 ]; then
+                  log "⚠️ Aplicação não respondeu após 60 segundos, mas container está rodando"
+                  log "=== LOGS DETALHADOS PARA DEBUG ==="
+                  docker-compose -f docker-compose.prod.yml logs web
+              fi
+          done
+          
+          log "Verificação final da aplicação..."
+          FINAL_HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/simple/ping || echo "000")
+          
+          if [ "$FINAL_HTTP_STATUS" = "200" ]; then
+              log "✓ Etapa 14/18: Aplicação web está rodando e respondendo corretamente"
           else
-              log "✗ ERRO: Container web não está rodando"
-              docker-compose -f docker-compose.prod.yml logs web | tail -50 >> "$LOG_FILE"
-              exit 1
+              log "⚠️ Etapa 14/18: Container está rodando mas aplicação não responde (HTTP: $FINAL_HTTP_STATUS)"
+              log "Continuando deploy - aplicação pode estar inicializando..."
           fi
           
           log "Verificando criação de tabelas..."
@@ -189,8 +231,23 @@ jobs:
           log "✓ Etapa 17/18: Flower iniciado"
           
           log "Testando endpoint da API..."
-          RESPONSE=$(curl -s http://localhost:5000/api/simple/ping || echo "ERRO")
-          log "✓ Etapa 18/18: Resposta da API: $RESPONSE"
+          
+          log "Aguardando 5 segundos antes do teste final..."
+          sleep 5
+          
+          RESPONSE=$(curl -s http://localhost:5000/api/simple/ping 2>/dev/null || echo "ERRO_CONEXAO")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/simple/ping 2>/dev/null || echo "000")
+          
+          log "Resposta da API: $RESPONSE"
+          log "Código HTTP: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" = "200" ] && [ "$RESPONSE" != "ERRO_CONEXAO" ]; then
+              log "✅ Etapa 18/18: API respondendo corretamente!"
+          else
+              log "⚠️ Etapa 18/18: API não está respondendo como esperado"
+              log "Verificando logs finais do container web:"
+              docker-compose -f docker-compose.prod.yml logs --tail=20 web
+          fi
           
           log "=== DEPLOY CONCLUÍDO COM SUCESSO ==="
           log "Versão deployada: ${{ github.sha }}"

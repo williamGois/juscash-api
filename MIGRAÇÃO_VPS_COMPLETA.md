@@ -23,6 +23,9 @@ psql: error: connection to server at "db" (172.20.0.3), port 5432 failed: FATAL:
 - ✅ Removido `set -e` e adicionado tratamento granular de erros
 - ✅ Verificação de dependências (Python3, Docker, Docker Compose)
 - ✅ Logs detalhados para debug em caso de falha
+- ✅ **MONITORAMENTO AVANÇADO:** Verificação HTTP da aplicação a cada 10s
+- ✅ **DEBUG COMPLETO:** Logs de web, DB e Redis em caso de crash
+- ✅ **TIMEOUT INTELIGENTE:** 6 verificações de 10s com status HTTP
 
 ### 2. Configurações de Ambiente
 O script agora cria automaticamente um arquivo `.env` com:
@@ -67,20 +70,19 @@ Após o deploy, verificar:
 ✅ **Docker Compose otimizado** - Warnings eliminados  
 ✅ **Pronto para novo deploy**  
 
-## ⚠️ Última Atualização - 04:13:00 - RECURSOS AJUSTADOS PARA VPS
+## ⚠️ Última Atualização - 04:17:00 - DEBUG AVANÇADO IMPLEMENTADO
 As mudanças neste commit resolvem:
-1. ❌ **Erro anterior:** "range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs available"
-2. ✅ **CORREÇÃO CRÍTICA:** Ajustados todos os limites de CPU para VPS de 1 CPU apenas
-3. ✅ **Otimizações aplicadas:**
-   - DB: 1.0 CPU → 0.2 CPU | 1GB RAM → 512MB RAM
-   - Redis: 0.5 CPU → 0.1 CPU | 512MB RAM → 256MB RAM  
-   - Web: 0.8 CPU → 0.5 CPU | 1GB RAM → 768MB RAM
-   - Worker: 1.0 CPU → 0.2 CPU | 1GB RAM → 512MB RAM
-   - Flower: 0.5 CPU → 0.1 CPU | 512MB RAM → 256MB RAM
-4. ✅ **Workers reduzidos:** Gunicorn 4→2 workers, Celery 2→1 concorrência
-5. ✅ **Total estimado:** ~0.9 CPU (compatível com VPS 1 CPU)
+1. ❌ **Problema atual:** Container inicia mas aplicação pode estar crashando silenciosamente
+2. ✅ **MONITORAMENTO IMPLEMENTADO:** Script agora verifica status HTTP da aplicação
+3. ✅ **DEBUG AVANÇADO:** 
+   - Verificação HTTP a cada 10 segundos (6x)
+   - Logs completos de web, DB e Redis em caso de crash
+   - Detecção precisa se container crasha ou aplicação falha
+   - Timeout inteligente com feedback contínuo
+4. ✅ **RECURSOS OTIMIZADOS:** VPS 1 CPU compatível (~0.9 CPU total)
+5. ✅ **DIAGNÓSTICO COMPLETO:** Identificará exatamente onde está o problema
 
-🎯 **AGORA COMPATÍVEL COM VPS BÁSICO DE 1 CPU - DEPLOY GARANTIDO!**
+🔍 **AGORA COM MONITORAMENTO AVANÇADO - PROBLEMAS SERÃO DETECTADOS E LOGADOS!**
 
 ## 📊 Resumo das Otimizações de Recursos
 
