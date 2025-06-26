@@ -1132,12 +1132,658 @@ class DashboardUI(Resource):
                 'message': 'Erro ao carregar dashboard UI'
             }, 500
 
+# Adicionar no final do arquivo, antes da função register_namespaces
+
+from flask import Response
+import tempfile
+import base64
+import threading
+from queue import Queue
+import time
+
+# Namespace para visualização do Selenium
+selenium_visual_ns = Namespace('selenium-visual', description='Visualização do Selenium em tempo real')
+
+# Status global do scraping
+scraping_status = {'active': False, 'step': 'Inativo', 'progress': 0}
+
+@selenium_visual_ns.route('/live')
+class SeleniumLive(Resource):
+    @selenium_visual_ns.doc('selenium_live_interface')
+    def get(self):
+        """Interface web para visualizar o Selenium em tempo real"""
+        
+        html_template = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🕷️ Selenium Live - JusCash</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .header { 
+            background: linear-gradient(45deg, #2196F3, #21CBF3);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.2em; opacity: 0.9; }
+        .content { padding: 30px; }
+        .controls { 
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .btn { 
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        .btn-success { background: #28a745; color: white; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .date-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .date-controls input {
+            padding: 10px;
+            margin: 5px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #007bff;
+        }
+        .status-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .progress-container {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 20px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(45deg, #28a745, #20c997);
+            transition: width 0.5s ease;
+            border-radius: 10px;
+        }
+        .screenshot-section {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .screenshot {
+            max-width: 100%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            border: 3px solid #ddd;
+        }
+        .logs-section {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .auto-refresh {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .auto-refresh label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-size: 16px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🕷️ Selenium Live Scraping</h1>
+            <p>Visualize o web scraping do DJE em tempo real</p>
+        </div>
+        
+        <div class="content">
+            <div class="date-controls">
+                <h3>📅 Configurar Período</h3>
+                <label>Data Início: </label>
+                <input type="date" id="dataInicio" />
+                <label>Data Fim: </label>
+                <input type="date" id="dataFim" />
+            </div>
+            
+            <div class="controls">
+                <button class="btn btn-success" onclick="startScraping()">
+                    🚀 Iniciar Scraping
+                </button>
+                <button class="btn btn-primary" onclick="takeScreenshot()">
+                    📸 Screenshot
+                </button>
+                <button class="btn btn-warning" onclick="updateStatus()">
+                    🔄 Atualizar Status
+                </button>
+                <button class="btn btn-danger" onclick="stopScraping()">
+                    ⏹️ Parar
+                </button>
+            </div>
+            
+            <div class="auto-refresh">
+                <label>
+                    <input type="checkbox" id="autoRefresh" checked> 
+                    🔄 Atualizar automaticamente a cada 3 segundos
+                </label>
+            </div>
+            
+            <div class="status-card">
+                <div class="status-text" id="statusText">Status: Carregando...</div>
+                <div class="progress-container">
+                    <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+                </div>
+                <div id="progressText">0%</div>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="screenshotCount">0</div>
+                    <div class="stat-label">Screenshots</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="uptime">00:00</div>
+                    <div class="stat-label">Tempo Ativo</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="lastUpdate">--:--</div>
+                    <div class="stat-label">Última Atualização</div>
+                </div>
+            </div>
+            
+            <div class="screenshot-section">
+                <h3>📸 Screenshot Atual</h3>
+                <div id="screenshotInfo">Nenhum screenshot disponível</div>
+                <img id="screenshot" class="screenshot" style="display: none;" />
+            </div>
+            
+            <div>
+                <h3>📋 Logs do Sistema</h3>
+                <div class="logs-section" id="logs">
+Aguardando logs do sistema...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval;
+        let screenshotCount = 0;
+        let startTime = Date.now();
+        
+        window.onload = function() {
+            // Configurar datas padrão
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            const formatDate = (date) => date.toISOString().split('T')[0];
+            
+            document.getElementById('dataInicio').value = formatDate(yesterday);
+            document.getElementById('dataFim').value = formatDate(yesterday);
+            
+            addLog('🌟 Interface carregada com sucesso!');
+            updateStatus();
+            startAutoRefresh();
+        };
+        
+        function startAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+            if (checkbox.checked && !autoRefreshInterval) {
+                autoRefreshInterval = setInterval(() => {
+                    updateStatus();
+                    updateUptime();
+                }, 3000);
+                addLog('🔄 Auto-refresh ativado');
+            }
+        }
+        
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                addLog('⏹️ Auto-refresh desativado');
+            }
+        }
+        
+        document.getElementById('autoRefresh').onchange = function() {
+            if (this.checked) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        };
+        
+        async function startScraping() {
+            const dataInicio = document.getElementById('dataInicio').value + 'T00:00:00';
+            const dataFim = document.getElementById('dataFim').value + 'T23:59:59';
+            
+            addLog('🚀 Iniciando scraping...');
+            
+            try {
+                const response = await fetch('/api/selenium-visual/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        data_inicio: dataInicio,
+                        data_fim: dataFim
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addLog('✅ Scraping iniciado com sucesso!');
+                    startTime = Date.now();
+                    setTimeout(updateStatus, 1000);
+                } else {
+                    addLog('❌ Erro ao iniciar: ' + data.error);
+                }
+            } catch (error) {
+                addLog('❌ Erro de rede: ' + error.message);
+            }
+        }
+        
+        async function takeScreenshot() {
+            addLog('📸 Capturando screenshot...');
+            
+            try {
+                const response = await fetch('/api/selenium-visual/screenshot');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const img = document.getElementById('screenshot');
+                    const info = document.getElementById('screenshotInfo');
+                    
+                    img.src = 'data:image/png;base64,' + data.base64_data;
+                    img.style.display = 'block';
+                    info.innerHTML = `
+                        <strong>Screenshot capturado às ${data.timestamp}</strong><br>
+                        URL: ${data.url || 'N/A'}
+                    `;
+                    
+                    screenshotCount++;
+                    document.getElementById('screenshotCount').textContent = screenshotCount;
+                    
+                    addLog('✅ Screenshot atualizado');
+                } else {
+                    addLog('❌ Erro no screenshot: ' + data.error);
+                }
+            } catch (error) {
+                addLog('❌ Erro: ' + error.message);
+            }
+        }
+        
+        async function stopScraping() {
+            addLog('⏹️ Parando scraping...');
+            
+            try {
+                const response = await fetch('/api/selenium-visual/stop', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                addLog('✅ Scraping parado');
+                updateStatus();
+            } catch (error) {
+                addLog('❌ Erro: ' + error.message);
+            }
+        }
+        
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/selenium-visual/status');
+                const data = await response.json();
+                
+                const statusText = document.getElementById('statusText');
+                const progressBar = document.getElementById('progressBar');
+                const progressText = document.getElementById('progressText');
+                
+                statusText.textContent = 'Status: ' + data.step;
+                progressBar.style.width = data.progress + '%';
+                progressText.textContent = data.progress + '%';
+                
+                // Atualizar cor baseada no status
+                const statusCard = document.querySelector('.status-card');
+                if (data.active) {
+                    statusCard.style.borderLeftColor = '#28a745';
+                } else {
+                    statusCard.style.borderLeftColor = '#6c757d';
+                }
+                
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                
+                // Auto-screenshot se ativo
+                if (data.active && document.getElementById('autoRefresh').checked) {
+                    setTimeout(takeScreenshot, 1000);
+                }
+                
+            } catch (error) {
+                addLog('❌ Erro ao atualizar status: ' + error.message);
+            }
+        }
+        
+        function updateUptime() {
+            const elapsed = Date.now() - startTime;
+            const minutes = Math.floor(elapsed / 60000);
+            const seconds = Math.floor((elapsed % 60000) / 1000);
+            document.getElementById('uptime').textContent = 
+                String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        }
+        
+        function addLog(message) {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            logs.textContent += '[' + timestamp + '] ' + message + '\\n';
+            logs.scrollTop = logs.scrollHeight;
+        }
+    </script>
+</body>
+</html>
+        """
+        
+        return Response(html_template, mimetype='text/html')
+
+@selenium_visual_ns.route('/start')
+class StartVisualScraping(Resource):
+    @selenium_visual_ns.doc('start_visual_scraping')
+    def post(self):
+        """Inicia scraping visual"""
+        global scraping_status
+        
+        if scraping_status['active']:
+            return {'success': False, 'error': 'Scraping já está ativo'}, 400
+        
+        data = request.get_json()
+        
+        try:
+            data_inicio = datetime.fromisoformat(data['data_inicio'])
+            data_fim = datetime.fromisoformat(data['data_fim'])
+        except (KeyError, ValueError):
+            return {'success': False, 'error': 'Datas inválidas'}, 400
+        
+        # Iniciar thread de scraping
+        thread = threading.Thread(
+            target=run_visual_scraping_thread,
+            args=(data_inicio, data_fim)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return {
+            'success': True,
+            'message': 'Scraping visual iniciado',
+            'periodo': f"{data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
+        }
+
+@selenium_visual_ns.route('/screenshot')
+class VisualScreenshot(Resource):
+    @selenium_visual_ns.doc('visual_screenshot')
+    def get(self):
+        """Captura screenshot atual"""
+        try:
+            from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+            
+            scraper = DJEScraperDebug(visual_mode=False)
+            
+            try:
+                current_url = scraper.driver.current_url
+                if current_url == 'data:,':
+                    scraper.driver.get("https://dje.tjsp.jus.br/cdje/index.do")
+                    time.sleep(2)
+                    current_url = scraper.driver.current_url
+                
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    screenshot_path = tmp_file.name
+                
+                scraper.driver.save_screenshot(screenshot_path)
+                
+                with open(screenshot_path, 'rb') as img_file:
+                    img_data = img_file.read()
+                    base64_data = base64.b64encode(img_data).decode('utf-8')
+                
+                os.unlink(screenshot_path)
+                
+                return {
+                    'success': True,
+                    'base64_data': base64_data,
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'url': current_url
+                }
+                
+            finally:
+                scraper.close()
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
+
+@selenium_visual_ns.route('/status')
+class VisualStatus(Resource):
+    @selenium_visual_ns.doc('visual_status')
+    def get(self):
+        """Status do scraping visual"""
+        global scraping_status
+        return scraping_status
+
+@selenium_visual_ns.route('/stop')
+class StopVisualScraping(Resource):
+    @selenium_visual_ns.doc('stop_visual_scraping')
+    def post(self):
+        """Para o scraping visual"""
+        global scraping_status
+        
+        scraping_status['active'] = False
+        scraping_status['step'] = 'Parado pelo usuário'
+        scraping_status['progress'] = 0
+        
+        return {'success': True, 'message': 'Scraping visual parado'}
+
+def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
+    """Thread que executa o scraping visual"""
+    global scraping_status
+    
+    scraping_status['active'] = True
+    scraping_status['step'] = 'Inicializando Chrome...'
+    scraping_status['progress'] = 5
+    
+    try:
+        from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+        from selenium.webdriver.support.ui import WebDriverWait, Select
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.common.by import By
+        
+        scraper = DJEScraperDebug(visual_mode=False)
+        
+        try:
+            # Etapa 1: Acessar DJE
+            scraping_status['step'] = 'Acessando site do DJE...'
+            scraping_status['progress'] = 15
+            
+            scraper.driver.get("https://dje.tjsp.jus.br/cdje/index.do")
+            time.sleep(3)
+            
+            # Etapa 2: Aguardar carregamento
+            scraping_status['step'] = 'Aguardando carregamento da página...'
+            scraping_status['progress'] = 25
+            
+            wait = WebDriverWait(scraper.driver, 30)
+            
+            # Etapa 3: Preencher formulário
+            scraping_status['step'] = 'Preenchendo formulário de pesquisa...'
+            scraping_status['progress'] = 35
+            
+            # Data início
+            data_inicio_field = wait.until(EC.visibility_of_element_located((By.ID, "dtInicioString")))
+            data_inicio_field.clear()
+            data_inicio_field.send_keys(data_inicio.strftime("%d/%m/%Y"))
+            
+            scraping_status['progress'] = 45
+            
+            # Data fim
+            data_fim_field = scraper.driver.find_element(By.ID, "dtFimString")
+            data_fim_field.clear()
+            data_fim_field.send_keys(data_fim.strftime("%d/%m/%Y"))
+            
+            scraping_status['progress'] = 55
+            
+            # Selecionar caderno
+            select_caderno = Select(scraper.driver.find_element(By.NAME, "dadosConsulta.cdCaderno"))
+            select_caderno.select_by_value("-11")
+            
+            scraping_status['progress'] = 65
+            
+            # Termo de busca
+            search_box = scraper.driver.find_element(By.ID, "procura")
+            search_box.clear()
+            search_box.send_keys('"instituto nacional do seguro social" E inss')
+            
+            # Etapa 4: Submeter formulário
+            scraping_status['step'] = 'Submetendo formulário...'
+            scraping_status['progress'] = 75
+            
+            submit_button = scraper.driver.find_element(By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")
+            submit_button.click()
+            
+            # Etapa 5: Aguardar resultados
+            scraping_status['step'] = 'Aguardando resultados...'
+            scraping_status['progress'] = 85
+            
+            time.sleep(5)
+            
+            # Etapa 6: Processar resultados
+            scraping_status['step'] = 'Processando resultados...'
+            scraping_status['progress'] = 95
+            
+            try:
+                wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
+                result_elements = scraper.driver.find_elements(By.CSS_SELECTOR, "div#divResultadosInferior table tr.fundocinza1")
+                
+                scraping_status['step'] = f'✅ Concluído! {len(result_elements)} publicações encontradas'
+                scraping_status['progress'] = 100
+                
+            except:
+                scraping_status['step'] = '✅ Concluído! Página de resultados carregada'
+                scraping_status['progress'] = 100
+            
+            # Aguardar antes de finalizar
+            time.sleep(10)
+            
+        finally:
+            scraper.close()
+            
+    except Exception as e:
+        scraping_status['step'] = f'❌ Erro: {str(e)}'
+        scraping_status['progress'] = 0
+    
+    finally:
+        # Resetar após 60 segundos
+        time.sleep(60)
+        if scraping_status['active']:
+            scraping_status['active'] = False
+            scraping_status['step'] = 'Finalizado automaticamente'
+            scraping_status['progress'] = 0
+
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
     # Registrar primeiro os namespaces principais
     api.add_namespace(publicacoes_ns)
     api.add_namespace(scraping_ns)
     api.add_namespace(simple_ns)
+    api.add_namespace(selenium_visual_ns)
     
     # Registrar cron_ns por último para evitar conflitos
     try:
