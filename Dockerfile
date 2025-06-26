@@ -1,11 +1,7 @@
 FROM python:3.11-slim
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libpq-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends     gcc     libpq-dev     curl     postgresql-client     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
