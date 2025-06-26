@@ -183,41 +183,41 @@ class PublicacoesList(Resource):
     def get(self):
         """Lista todas as publicações ou filtra por status"""
         try:
-        repository = SQLAlchemyPublicacaoRepository()
-        
-        status = request.args.get('status')
-        search = request.args.get('search')
-        limit = request.args.get('limit', type=int)
-        offset = request.args.get('offset', type=int)
-        
-        if search:
-            publicacoes = repository.search_by_content(search, limit or 50)
-        elif status:
-            publicacoes = repository.find_by_status(status, limit, offset)
-        else:
-            publicacoes = repository.find_all(limit, offset)
-        
-        publicacoes_dict = []
-        for pub in publicacoes:
-            publicacoes_dict.append({
-                'id': pub.id,
-                'numero_processo': pub.numero_processo,
-                'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
-                'autores': pub.autores,
-                'advogados': pub.advogados,
-                'conteudo_completo': pub.conteudo_completo,
-                'valor_principal_bruto': pub.valor_principal_bruto,
-                'valor_principal_liquido': pub.valor_principal_liquido,
-                'valor_juros_moratorios': pub.valor_juros_moratorios,
-                'honorarios_advocaticios': pub.honorarios_advocaticios,
-                'reu': pub.reu,
-                'status': pub.status,
-                'created_at': pub.created_at.isoformat() if pub.created_at else None,
-                'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
-            })
-        
-        return publicacoes_dict
+            repository = SQLAlchemyPublicacaoRepository()
             
+            status = request.args.get('status')
+            search = request.args.get('search')
+            limit = request.args.get('limit', type=int)
+            offset = request.args.get('offset', type=int)
+            
+            if search:
+                publicacoes = repository.search_by_content(search, limit or 50)
+            elif status:
+                publicacoes = repository.find_by_status(status, limit, offset)
+            else:
+                publicacoes = repository.find_all(limit, offset)
+            
+            publicacoes_dict = []
+            for pub in publicacoes:
+                publicacoes_dict.append({
+                    'id': pub.id,
+                    'numero_processo': pub.numero_processo,
+                    'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
+                    'autores': pub.autores,
+                    'advogados': pub.advogados,
+                    'conteudo_completo': pub.conteudo_completo,
+                    'valor_principal_bruto': pub.valor_principal_bruto,
+                    'valor_principal_liquido': pub.valor_principal_liquido,
+                    'valor_juros_moratorios': pub.valor_juros_moratorios,
+                    'honorarios_advocaticios': pub.honorarios_advocaticios,
+                    'reu': pub.reu,
+                    'status': pub.status,
+                    'created_at': pub.created_at.isoformat() if pub.created_at else None,
+                    'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
+                })
+            
+            return publicacoes_dict
+                
         except Exception as e:
             # Se tabela não existe, retornar array vazio com aviso
             if "does not exist" in str(e) or "relation" in str(e).lower():
