@@ -19,6 +19,7 @@ psql: error: connection to server at "db" (172.20.0.3), port 5432 failed: FATAL:
 - ✅ Configuração correta das variáveis de ambiente do PostgreSQL
 - ✅ Removido comando `create-tables.py` inexistente (tabelas são criadas pelo `run.py`)
 - ✅ Melhorada a sequência de inicialização dos containers
+- ✅ Corrigido erro de sintaxe no heredoc (agora usa echo linha por linha)
 
 ### 2. Configurações de Ambiente
 O script agora cria automaticamente um arquivo `.env` com:
@@ -29,7 +30,12 @@ O script agora cria automaticamente um arquivo `.env` com:
 - `SECRET_KEY` (gerada aleatoriamente com 64 caracteres seguros)
 - Outras variáveis essenciais para produção
 
-### 3. Sequência de Deploy Corrigida
+### 3. Docker Compose de Produção (`docker-compose.prod.yml`)
+- ✅ Removida linha `version: '3.8'` obsoleta
+- ✅ Corrigido conflito de volumes `/app/logs` (removido volume externo, mantido apenas tmpfs)
+- ✅ Eliminados warnings do Docker Compose
+
+### 4. Sequência de Deploy Corrigida
 1. Para containers web existentes
 2. Remove imagens antigas
 3. Cria/valida arquivo `.env` com senhas seguras
@@ -50,9 +56,16 @@ Após o deploy, verificar:
 - Endpoint da API: `curl http://localhost:5000/api/simple/ping`
 
 ## Status das Correções
-✅ **Correções aplicadas em:** $(date +'%Y-%m-%d %H:%M:%S')  
-✅ **Workflow de deploy corrigido**  
-✅ **Configuração de ambiente ajustada**  
+✅ **Correções aplicadas em:** 2025-06-26 04:05:00  
+✅ **Workflow de deploy corrigido** - Erro de sintaxe do script resolvido  
+✅ **Configuração de ambiente ajustada** - Arquivo .env criado linha por linha  
+✅ **Docker Compose otimizado** - Warnings eliminados  
 ✅ **Pronto para novo deploy**  
 
-As mudanças neste commit devem resolver automaticamente o problema de autenticação do PostgreSQL no próximo deploy. 
+## ⚠️ Última Atualização
+As mudanças neste commit resolvem:
+1. ❌ **Erro anterior:** Script quebrado por formatação heredoc incorreta
+2. ✅ **Correção aplicada:** Geração de .env linha por linha com echo
+3. ✅ **Bonus:** Warnings do Docker Compose eliminados
+
+O próximo deploy deve funcionar perfeitamente! 
