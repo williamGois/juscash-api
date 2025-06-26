@@ -112,17 +112,17 @@ jobs:
         VPS_HOST: ${{ secrets.VPS_HOST }}
         VPS_USER: ${{ secrets.VPS_USER }}
       run: |
-        ssh $VPS_USER@$VPS_HOST << 'EOF'
+        ssh $VPS_USER@$VPS_HOST << EOF
           set -e
           
-          echo "🔄 Iniciando deploy automático..."
+          echo "🔄 Iniciando deploy automático para o branch: ${{ github.ref_name }}"
           
           # Navegar para diretório do projeto
           cd /var/www/juscash
           
           # Backup da versão atual
           echo "💾 Fazendo backup (se banco disponível)..."
-          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou - continuando deploy..."
+          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou - continuando deploy..."
           
           # Pull das mudanças com limpeza forçada
           echo "📥 Atualizando código..."
@@ -131,8 +131,12 @@ jobs:
           git checkout -- .
           git clean -fd
           git fetch origin
-          git reset --hard origin/master
-          echo "✅ Código atualizado para: $(git log --oneline -1)"
+          git reset --hard origin/${{ github.ref_name }}
+          echo "✅ Código atualizado para: \$(git log --oneline -1)"
+          
+          # Criar arquivo de versão para health check
+          echo "📝 Criando arquivo de versão..."
+          echo "\$(git rev-parse --short HEAD)" > VERSION
           
           # Corrigir permissões após reset
           echo "🔒 Corrigindo permissões..."
@@ -196,8 +200,9 @@ jobs:
           echo "📊 Status dos containers:"
           docker-compose ps
           
-          # Verificar commit atual
-          echo "📋 Commit deployado: $(git log --oneline -1)"
+          # Verificar commit e versão
+          echo "📋 Commit deployado: \$(git log --oneline -1)"
+          echo "🔖 Versão no arquivo: \$(cat VERSION)"
           
           # Limpar imagens antigas
           docker image prune -f

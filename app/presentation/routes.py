@@ -7,6 +7,17 @@ from app.infrastructure.scraping.dje_scraper import DJEScraper
 from app.tasks.scraping_tasks import extract_publicacoes_task
 import os
 
+def get_version():
+    """Lê a versão do arquivo VERSION na raiz do projeto."""
+    try:
+        # O arquivo VERSION estará na raiz, dois níveis acima deste arquivo
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        with open(os.path.join(root_dir, 'VERSION'), 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return 'unknown'
+    except Exception:
+        return 'error_reading_version'
 
 publicacoes_ns = Namespace('publicacoes', description='Operações relacionadas às publicações do DJE')
 scraping_ns = Namespace('scraping', description='Operações de web scraping')
@@ -841,7 +852,7 @@ class SimplePing(Resource):
             'status': 'ok',
             'message': 'API funcionando',
             'timestamp': datetime.now().isoformat(),
-            'version': 'v6.0.0-CI-CD-WORKING'
+            'version': get_version()
         }
 
 def register_namespaces(api):
