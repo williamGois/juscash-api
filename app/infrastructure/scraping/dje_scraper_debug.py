@@ -13,6 +13,8 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import requests
+import tempfile
+import uuid
 
 class DJEScraperDebug:
     """
@@ -36,6 +38,10 @@ class DJEScraperDebug:
         # Configurar display virtual se disponível
         if 'DISPLAY' not in os.environ:
             os.environ['DISPLAY'] = ':99'
+        
+        # Criar diretório de dados único para esta sessão
+        user_data_dir = f"/tmp/chrome_data_{uuid.uuid4().hex[:8]}"
+        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
         
         # MODO VISUAL: Comentar --headless para ver o Chrome
         if not self.visual_mode:
@@ -72,14 +78,17 @@ class DJEScraperDebug:
         chrome_options.add_argument("--aggressive-cache-discard")
         chrome_options.add_argument("--disable-background-networking")
         chrome_options.add_argument("--display=:99")
-        chrome_options.add_argument("--remote-debugging-port=9222")
+        chrome_options.add_argument("--remote-debugging-port=0")  # Porta aleatória
         chrome_options.add_argument("--disable-crash-reporter")
         chrome_options.add_argument("--disable-logging")
         chrome_options.add_argument("--disable-in-process-stack-traces")
+        chrome_options.add_argument("--disable-background-mode")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-sync")
         
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_experimental_option('detach', True)
+        chrome_options.add_experimental_option('detach', False)  # Não destacar
         
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
