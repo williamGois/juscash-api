@@ -99,3 +99,20 @@ ssh-keys/
 
 # GitHub Actions cache
 .github/workflows/.cache/ 
+
+# Deploy backups and logs
+backup_*.sql
+backups/
+deploy_*.log
+celerybeat-schedule
+*.pid
+
+# Temporary files generated during deploy
+VERSION
+.deploy-test
+.trigger_deploy
+.railway-deploy
+
+# Docker volumes and data
+docker-data/
+postgres-data/ 

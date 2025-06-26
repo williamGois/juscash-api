@@ -112,119 +112,262 @@ jobs:
         ssh $VPS_USER@$VPS_HOST << EOF
           set -e
           
-          echo "🔄 Deploy DRÁSTICO iniciado: \$(date)"
+          # Configurar logging detalhado
+          DEPLOY_LOG="/var/www/juscash/deploy_\$(date +%Y%m%d_%H%M%S).log"
+          exec > >(tee -a "\$DEPLOY_LOG") 2>&1
+          
+          echo "╔══════════════════════════════════════════════════════════════╗"
+          echo "║                🚀 DEPLOY COM LOGS DETALHADOS                ║"
+          echo "╚══════════════════════════════════════════════════════════════╝"
+          echo "🔄 Deploy iniciado: \$(date)"
           echo "📋 Tag da imagem: ${IMAGE_TAG:0:7}"
+          echo "📝 Log sendo salvo em: \$DEPLOY_LOG"
           
           cd /var/www/juscash
+          echo "📁 Diretório atual: \$(pwd)"
+          echo "👤 Usuário atual: \$(whoami)"
+          echo "🔍 Permissões do diretório: \$(ls -la . | head -5)"
           
           # 1. Backup rápido
-          echo "💾 Backup..."
-          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou"
+          echo ""
+          echo "💾 === ETAPA 1: BACKUP ==="
+          if docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null; then
+            echo "✅ Backup criado com sucesso"
+          else
+            echo "⚠️ Backup falhou - continuando deploy..."
+          fi
           
-          # 2. PARAR TUDO COMPLETAMENTE
-          echo "🛑 PARANDO TUDO COMPLETAMENTE..."
-          docker-compose down --remove-orphans --volumes || true
-          docker stop \$(docker ps -aq) 2>/dev/null || true
-          docker rm \$(docker ps -aq) 2>/dev/null || true
+          # 2. VERIFICAR ESTADO ATUAL DO GIT
+          echo ""
+          echo "📥 === ETAPA 2: VERIFICAR GIT ==="
+          echo "🔍 Status do Git antes:"
+          git status || echo "❌ Erro ao verificar status do git"
+          echo "🔍 Branch atual: \$(git branch --show-current 2>/dev/null || echo 'desconhecido')"
+          echo "🔍 Último commit local: \$(git log --oneline -1 2>/dev/null || echo 'erro ao obter commit')"
+          echo "🔍 Remote origin: \$(git remote get-url origin 2>/dev/null || echo 'sem remote')"
           
-          # 3. REMOVER TODAS AS IMAGENS RELACIONADAS
-          echo "🗑️ REMOVENDO TODAS AS IMAGENS..."
-          docker rmi \$(docker images -q --filter "reference=juscash*") 2>/dev/null || true
-          docker rmi \$(docker images -q --filter "dangling=true") 2>/dev/null || true
-          docker system prune -af --volumes || true
+          # 3. PARAR CONTAINERS COM LOGS
+          echo ""
+          echo "🛑 === ETAPA 3: PARAR CONTAINERS ==="
+          echo "📊 Containers antes de parar:"
+          docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || echo "❌ Erro ao listar containers"
           
-          # 4. Atualizar código
-          echo "📥 Atualizando código..."
-          git fetch origin
-          git reset --hard origin/master
-          git clean -fd
+          echo "⏹️ Parando containers com docker-compose..."
+          docker-compose down --remove-orphans --volumes 2>&1 || echo "⚠️ Erro ao parar com docker-compose"
           
-          # 5. Criar arquivo VERSION com hash do commit
+          echo "⏹️ Parando todos os containers Docker..."
+          docker stop \$(docker ps -aq) 2>/dev/null || echo "⚠️ Nenhum container para parar"
+          docker rm \$(docker ps -aq) 2>/dev/null || echo "⚠️ Nenhum container para remover"
+          
+          # 4. LIMPEZA DE IMAGENS COM LOGS
+          echo ""
+          echo "🗑️ === ETAPA 4: LIMPEZA DE IMAGENS ==="
+          echo "🔍 Imagens antes da limpeza:"
+          docker images | grep -E "(juscash|<none>)" || echo "⚠️ Nenhuma imagem juscash encontrada"
+          
+          echo "🗑️ Removendo imagens juscash..."
+          docker rmi \$(docker images -q --filter "reference=juscash*") 2>/dev/null || echo "⚠️ Nenhuma imagem juscash para remover"
+          
+          echo "🗑️ Removendo imagens órfãs..."
+          docker rmi \$(docker images -q --filter "dangling=true") 2>/dev/null || echo "⚠️ Nenhuma imagem órfã para remover"
+          
+          echo "🧹 Limpeza completa do sistema Docker..."
+          docker system prune -af --volumes 2>&1 || echo "⚠️ Erro na limpeza do sistema"
+          
+          # 5. ATUALIZAR CÓDIGO COM LOGS DETALHADOS
+          echo ""
+          echo "📥 === ETAPA 5: ATUALIZAR CÓDIGO ==="
+          
+          echo "🧹 Limpando arquivos de conflito..."
+          git stash push -m "Deploy stash \$(date)" --include-untracked 2>&1 || echo "⚠️ Nada para fazer stash"
+          
+          echo "🗑️ Removendo arquivos não rastreados..."
+          git clean -fd 2>&1 || echo "⚠️ Erro na limpeza de arquivos"
+          
+          echo "🔄 Fazendo fetch do origin..."
+          if git fetch origin 2>&1; then
+            echo "✅ Fetch realizado com sucesso"
+          else
+            echo "❌ ERRO NO FETCH! Tentando diagnosticar..."
+            echo "🔍 Conectividade de rede:"
+            ping -c 3 github.com || echo "❌ Sem conectividade com GitHub"
+            echo "🔍 Configuração do Git:"
+            git config --list | grep -E "(remote|url)" || echo "❌ Erro na configuração do Git"
+          fi
+          
+          echo "🔄 Fazendo reset hard para origin/master..."
+          if git reset --hard origin/master 2>&1; then
+            echo "✅ Reset realizado com sucesso"
+          else
+            echo "❌ ERRO NO RESET! Estado atual:"
+            git status
+            echo "🔍 Tentando reset alternativo..."
+            git reset --hard HEAD 2>&1 || echo "❌ Reset alternativo também falhou"
+          fi
+          
+          echo "🧹 Limpeza final de arquivos não rastreados..."
+          git clean -fd 2>&1 || echo "⚠️ Erro na limpeza final"
+          
+          echo "🔍 Estado após atualização:"
+          echo "   - Branch: \$(git branch --show-current 2>/dev/null || echo 'desconhecido')"
+          echo "   - Commit: \$(git log --oneline -1 2>/dev/null || echo 'erro')"
+          echo "   - Status: \$(git status --porcelain 2>/dev/null | wc -l) arquivos modificados"
+          
+          # 6. CRIAR ARQUIVO VERSION COM LOGS
+          echo ""
+          echo "📝 === ETAPA 6: CRIAR ARQUIVO VERSION ==="
+          echo "📝 Criando arquivo VERSION com hash: ${IMAGE_TAG:0:7}"
           echo "${IMAGE_TAG:0:7}" > VERSION
-          echo "✅ Versão criada: \$(cat VERSION)"
-          echo "📋 Verificando se arquivo existe: \$(ls -la VERSION)"
+          if [ -f VERSION ]; then
+            echo "✅ Arquivo VERSION criado: \$(cat VERSION)"
+            echo "📋 Permissões do arquivo: \$(ls -la VERSION)"
+          else
+            echo "❌ ERRO: Arquivo VERSION não foi criado!"
+          fi
           
-          # 6. MODIFICAR O CÓDIGO DIRETAMENTE PARA FORÇAR ATUALIZAÇÃO
-          echo "🔧 Modificando código para forçar atualização..."
-          sed -i "s/return 'unknown'/return '\$(cat VERSION)'/g" app/presentation/routes.py || true
-          sed -i "s/return 'error_reading_version'/return '\$(cat VERSION)'/g" app/presentation/routes.py || true
+          # 7. MODIFICAR CÓDIGO COM LOGS
+          echo ""
+          echo "🔧 === ETAPA 7: MODIFICAR CÓDIGO ==="
+          echo "🔧 Modificando routes.py para forçar versão..."
+          if sed -i "s/return 'unknown'/return '\$(cat VERSION)'/g" app/presentation/routes.py; then
+            echo "✅ Modificação 1 realizada"
+          else
+            echo "❌ Erro na modificação 1"
+          fi
           
-          # 6.5. GARANTIR QUE O ARQUIVO VERSION SEJA COPIADO PARA O CONTAINER
-          echo "📋 Adicionando VERSION ao Dockerfile temporariamente..."
+          if sed -i "s/return 'error_reading_version'/return '\$(cat VERSION)'/g" app/presentation/routes.py; then
+            echo "✅ Modificação 2 realizada"
+          else
+            echo "❌ Erro na modificação 2"
+          fi
+          
+          # 8. MODIFICAR DOCKERFILE COM LOGS
+          echo ""
+          echo "🐳 === ETAPA 8: MODIFICAR DOCKERFILE ==="
+          echo "📋 Dockerfile antes da modificação:"
+          tail -5 Dockerfile || echo "❌ Erro ao ler Dockerfile"
+          
+          echo "📝 Adicionando VERSION e ENV ao Dockerfile..."
           echo "COPY VERSION /app/VERSION" >> Dockerfile
           echo "ENV DEPLOY_VERSION=${IMAGE_TAG:0:7}" >> Dockerfile
           
-          # 7. Build COMPLETAMENTE DO ZERO
-          echo "🔨 Build COMPLETO do zero..."
-          docker-compose build --no-cache --pull --force-rm
+          echo "📋 Dockerfile após modificação:"
+          tail -5 Dockerfile || echo "❌ Erro ao ler Dockerfile modificado"
           
-          # 8. Iniciar containers
+          # 9. BUILD COM LOGS DETALHADOS
+          echo ""
+          echo "🔨 === ETAPA 9: BUILD DO DOCKER ==="
+          echo "🔨 Iniciando build completo do zero..."
+          if docker-compose build --no-cache --pull --force-rm 2>&1; then
+            echo "✅ Build concluído com sucesso"
+          else
+            echo "❌ ERRO NO BUILD!"
+            echo "🔍 Verificando se o docker-compose.yml existe:"
+            ls -la docker-compose.yml || echo "❌ docker-compose.yml não encontrado"
+            echo "🔍 Verificando se o Dockerfile existe:"
+            ls -la Dockerfile || echo "❌ Dockerfile não encontrado"
+            exit 1
+          fi
+          
+          # 10. INICIAR CONTAINERS COM LOGS
+          echo ""
+          echo "🚀 === ETAPA 10: INICIAR CONTAINERS ==="
           echo "🚀 Iniciando containers..."
-          docker-compose up -d
+          if docker-compose up -d 2>&1; then
+            echo "✅ Containers iniciados"
+          else
+            echo "❌ ERRO AO INICIAR CONTAINERS!"
+            echo "🔍 Logs de erro:"
+            docker-compose logs --tail=20 2>&1 || echo "❌ Erro ao obter logs"
+            exit 1
+          fi
           
-          # 9. Aguardar inicialização LONGA
+          # 11. AGUARDAR E VERIFICAR
+          echo ""
+          echo "⏳ === ETAPA 11: AGUARDAR INICIALIZAÇÃO ==="
           echo "⏳ Aguardando 60 segundos para inicialização completa..."
-          sleep 60
+          for i in {1..60}; do
+            echo -n "."
+            sleep 1
+            if [ \$((i % 10)) -eq 0 ]; then
+              echo " [\$i/60]"
+            fi
+          done
+          echo ""
           
-          # 10. VERIFICAR SE O ARQUIVO VERSION ESTÁ NO CONTAINER
-          echo "🔍 Verificando se arquivo VERSION está no container..."
-          docker-compose exec -T web ls -la /app/VERSION || echo "❌ Arquivo VERSION não encontrado no container"
-          docker-compose exec -T web cat /app/VERSION || echo "❌ Não foi possível ler arquivo VERSION no container"
-          docker-compose exec -T web env | grep DEPLOY_VERSION || echo "❌ Variável DEPLOY_VERSION não encontrada"
+          # 12. VERIFICAÇÕES DETALHADAS
+          echo ""
+          echo "🔍 === ETAPA 12: VERIFICAÇÕES ==="
+          echo "📊 Status dos containers:"
+          docker-compose ps || echo "❌ Erro ao verificar status"
           
-          # 11. Teste da API com timeout muito maior
-          echo "🏥 Testando API com timeout estendido..."
+          echo "🔍 Verificando arquivo VERSION no container:"
+          docker-compose exec -T web ls -la /app/VERSION 2>&1 || echo "❌ Arquivo VERSION não encontrado no container"
+          docker-compose exec -T web cat /app/VERSION 2>&1 || echo "❌ Não foi possível ler arquivo VERSION no container"
+          
+          echo "🔍 Verificando variável de ambiente:"
+          docker-compose exec -T web env | grep DEPLOY_VERSION 2>&1 || echo "❌ Variável DEPLOY_VERSION não encontrada"
+          
+          echo "📋 Logs recentes do container web:"
+          docker-compose logs web --tail=20 || echo "❌ Erro ao obter logs do container"
+          
+          # 13. TESTE DA API
+          echo ""
+          echo "🏥 === ETAPA 13: TESTE DA API ==="
           SUCCESS=false
           for i in {1..20}; do
-            echo "🔍 Tentativa \$i/20..."
-            if curl -f -s --max-time 20 http://localhost:5000/api/simple/ping > /tmp/health.json; then
+            echo "🔍 Teste \$i/20..."
+            if curl -f -s --max-time 20 http://localhost:5000/api/simple/ping > /tmp/health.json 2>&1; then
               API_VERSION=\$(cat /tmp/health.json | python3 -c "import json,sys; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
               echo "✅ API respondendo! Versão: \$API_VERSION"
               echo "📋 Resposta completa:"
               cat /tmp/health.json | python3 -m json.tool 2>/dev/null || cat /tmp/health.json
               
-              # Verificar se a versão foi atualizada
               if [ "\$API_VERSION" = "${IMAGE_TAG:0:7}" ]; then
                 echo "🎉 VERSÃO ATUALIZADA CORRETAMENTE!"
                 SUCCESS=true
                 break
               else
-                echo "⚠️ Versão ainda não atualizada (esperado: ${IMAGE_TAG:0:7}, atual: \$API_VERSION)"
-                echo "🔍 Verificando arquivo VERSION no container:"
-                docker-compose exec -T web cat VERSION || echo "❌ Arquivo VERSION não encontrado no container"
+                echo "⚠️ Versão não coincide (esperado: ${IMAGE_TAG:0:7}, atual: \$API_VERSION)"
               fi
               break
             else
               echo "❌ API não está respondendo - tentativa \$i/20"
               if [ \$i -eq 5 ] || [ \$i -eq 10 ] || [ \$i -eq 15 ]; then
-                echo "📋 Logs recentes do container web:"
-                docker-compose logs web --tail=15
-                echo "📊 Status dos containers:"
-                docker-compose ps
+                echo "📋 Logs do container:"
+                docker-compose logs web --tail=10 || echo "❌ Erro ao obter logs"
               fi
               sleep 5
             fi
           done
           
-          # 12. Executar migrações
-          echo "🗄️ Aplicando migrações..."
-          docker-compose exec -T web flask db upgrade || echo "⚠️ Erro nas migrações"
-          
-          # 13. Reverter modificações no código
-          echo "🔄 Revertendo modificações temporárias..."
-          git checkout -- app/presentation/routes.py
-          
-          if [ "\$SUCCESS" = true ]; then
-            echo "✅ DEPLOY DRÁSTICO CONCLUÍDO COM SUCESSO!"
+          # 14. MIGRAÇÕES
+          echo ""
+          echo "🗄️ === ETAPA 14: MIGRAÇÕES ==="
+          if docker-compose exec -T web flask db upgrade 2>&1; then
+            echo "✅ Migrações aplicadas com sucesso"
           else
-            echo "❌ Deploy executado, mas versão pode não ter atualizado"
-            echo "🔍 Informações de debug:"
-            echo "   - Arquivo VERSION: \$(cat VERSION 2>/dev/null || echo 'não encontrado')"
-            echo "   - Status containers: \$(docker-compose ps --services --filter 'status=running')"
-            echo "   - Imagens criadas: \$(docker images | grep juscash | head -3)"
+            echo "⚠️ Erro nas migrações - continuando..."
           fi
           
+          # 15. LIMPEZA FINAL
+          echo ""
+          echo "🔄 === ETAPA 15: LIMPEZA FINAL ==="
+          echo "🔄 Revertendo modificações temporárias..."
+          git checkout -- app/presentation/routes.py Dockerfile 2>&1 || echo "⚠️ Erro ao reverter modificações"
+          
+          # 16. RESULTADO FINAL
+          echo ""
+          echo "📊 === RESULTADO FINAL ==="
+          if [ "\$SUCCESS" = true ]; then
+            echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
+          else
+            echo "❌ Deploy executado, mas versão pode não ter atualizado"
+          fi
+          
+          echo "📝 Log completo salvo em: \$DEPLOY_LOG"
           echo "🌐 Acesse: https://cron.juscash.app/api/simple/ping"
+          echo "📅 Deploy finalizado: \$(date)"
         EOF
 
     - name: 🔔 Verificação Externa Final

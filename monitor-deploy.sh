@@ -2,7 +2,7 @@
 
 # Script para monitorar o deploy em tempo real
 
-EXPECTED_VERSION="1996a80"
+EXPECTED_VERSION="6581e1a"
 API_URL="https://cron.juscash.app/api/simple/ping"
 MAX_ATTEMPTS=40
 INTERVAL=15
