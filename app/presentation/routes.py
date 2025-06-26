@@ -85,7 +85,8 @@ class PublicacoesHealth(Resource):
             from app.infrastructure.database.models import PublicacaoModel
             
             # Verificar se consegue conectar no banco
-            db.engine.execute('SELECT 1')
+            with db.engine.connect() as connection:
+                connection.execute(db.text('SELECT 1'))
             
             # Verificar se tabela existe
             inspector = db.inspect(db.engine)
@@ -995,7 +996,8 @@ class EnvCheck(Resource):
         # Teste básico de banco
         try:
             from app import db
-            db.engine.execute('SELECT 1')
+            with db.engine.connect() as connection:
+                connection.execute(db.text('SELECT 1'))
             env_check['database']['connection'] = 'success'
         except Exception as e:
             env_check['database']['connection'] = 'failed'

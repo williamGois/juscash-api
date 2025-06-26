@@ -30,7 +30,8 @@ def main():
         with app.app_context():
             try:
                 # Testar conexão com banco
-                db.engine.execute('SELECT 1')
+                with db.engine.connect() as connection:
+                    connection.execute(db.text('SELECT 1'))
                 print("✓ Conexão com banco de dados OK")
                 
                 # Criar tabelas se necessário
