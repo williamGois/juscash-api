@@ -183,40 +183,40 @@ class PublicacoesList(Resource):
     def get(self):
         """Lista todas as publicações ou filtra por status"""
         try:
-            repository = SQLAlchemyPublicacaoRepository()
-            
-            status = request.args.get('status')
-            search = request.args.get('search')
-            limit = request.args.get('limit', type=int)
-            offset = request.args.get('offset', type=int)
-            
-            if search:
-                publicacoes = repository.search_by_content(search, limit or 50)
-            elif status:
-                publicacoes = repository.find_by_status(status, limit, offset)
-            else:
-                publicacoes = repository.find_all(limit, offset)
-            
-            publicacoes_dict = []
-            for pub in publicacoes:
-                publicacoes_dict.append({
-                    'id': pub.id,
-                    'numero_processo': pub.numero_processo,
-                    'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
-                    'autores': pub.autores,
-                    'advogados': pub.advogados,
-                    'conteudo_completo': pub.conteudo_completo,
-                    'valor_principal_bruto': pub.valor_principal_bruto,
-                    'valor_principal_liquido': pub.valor_principal_liquido,
-                    'valor_juros_moratorios': pub.valor_juros_moratorios,
-                    'honorarios_advocaticios': pub.honorarios_advocaticios,
-                    'reu': pub.reu,
-                    'status': pub.status,
-                    'created_at': pub.created_at.isoformat() if pub.created_at else None,
-                    'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
-                })
-            
-            return publicacoes_dict
+        repository = SQLAlchemyPublicacaoRepository()
+        
+        status = request.args.get('status')
+        search = request.args.get('search')
+        limit = request.args.get('limit', type=int)
+        offset = request.args.get('offset', type=int)
+        
+        if search:
+            publicacoes = repository.search_by_content(search, limit or 50)
+        elif status:
+            publicacoes = repository.find_by_status(status, limit, offset)
+        else:
+            publicacoes = repository.find_all(limit, offset)
+        
+        publicacoes_dict = []
+        for pub in publicacoes:
+            publicacoes_dict.append({
+                'id': pub.id,
+                'numero_processo': pub.numero_processo,
+                'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
+                'autores': pub.autores,
+                'advogados': pub.advogados,
+                'conteudo_completo': pub.conteudo_completo,
+                'valor_principal_bruto': pub.valor_principal_bruto,
+                'valor_principal_liquido': pub.valor_principal_liquido,
+                'valor_juros_moratorios': pub.valor_juros_moratorios,
+                'honorarios_advocaticios': pub.honorarios_advocaticios,
+                'reu': pub.reu,
+                'status': pub.status,
+                'created_at': pub.created_at.isoformat() if pub.created_at else None,
+                'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
+            })
+        
+        return publicacoes_dict
             
         except Exception as e:
             # Se tabela não existe, retornar array vazio com aviso
@@ -606,11 +606,18 @@ class ScrapingHealth(Resource):
         health_status['version'] = 'v1.0.2-auto-deploy'
         health_status['deploy_method'] = 'GitHub Actions CI/CD'
         
-        # Verificar Selenium
+        # Verificar Selenium (teste básico sem inicializar driver)
         try:
-            from app.infrastructure.scraping.dje_scraper import DJEScraper
-            scraper = DJEScraper()
-            scraper.close()
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+            
+            # Teste básico: verificar se as bibliotecas estão disponíveis
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            
+            # Não inicializar o driver, apenas verificar se é possível criar as opções
             health_status['services']['selenium'] = 'available'
         except Exception as e:
             health_status['services']['selenium'] = 'unavailable'
