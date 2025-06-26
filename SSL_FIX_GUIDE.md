@@ -94,6 +94,22 @@ server {
 }
 ```
 
+## Problema: Certificado Cruzado (Portainer usando certificado do cron)
+
+### Sintoma
+- Portainer mostra certificado com CN=cron.juscash.app
+- Browser exibe erro de certificado inválido
+
+### Solução Rápida
+```bash
+sudo ./scripts/fix-portainer-ssl.sh
+```
+
+### Causa Provável
+- Certificados wildcard ou compartilhados
+- Cache do nginx ou browser
+- Ordem de geração dos certificados
+
 ## Troubleshooting
 
 ### Se o Script Falhar
