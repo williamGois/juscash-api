@@ -75,6 +75,55 @@ stats_model = publicacoes_ns.model('PublicacoesStats', {
     'total': fields.Integer(description='Total de publicações')
 })
 
+@publicacoes_ns.route('/health')
+class PublicacoesHealth(Resource):
+    @publicacoes_ns.doc('publicacoes_health')
+    def get(self):
+        """Health check do endpoint de publicações"""
+        try:
+            from app import db
+            from app.infrastructure.database.models import PublicacaoModel
+            
+            # Verificar se consegue conectar no banco
+            db.engine.execute('SELECT 1')
+            
+            # Verificar se tabela existe
+            inspector = db.inspect(db.engine)
+            tables = inspector.get_table_names()
+            
+            if 'publicacoes' in tables:
+                # Fazer uma query de teste
+                result = db.session.execute(db.text('SELECT COUNT(*) FROM publicacoes'))
+                count = result.scalar()
+                
+                return {
+                    'status': 'healthy',
+                    'message': 'Endpoint de publicações funcionando',
+                    'database': 'connected',
+                    'table_exists': True,
+                    'publicacoes_count': count,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                return {
+                    'status': 'degraded',
+                    'message': 'Tabela publicacoes não existe',
+                    'database': 'connected',
+                    'table_exists': False,
+                    'available_tables': tables,
+                    'solution': 'Use /api/publicacoes/setup-database para criar a tabela',
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+        except Exception as e:
+            return {
+                'status': 'unhealthy',
+                'message': f'Erro de banco de dados: {str(e)}',
+                'database': 'error',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }, 500
+
 @publicacoes_ns.route('/setup-database')
 class SetupDatabase(Resource):
     @publicacoes_ns.doc('setup_database')
@@ -132,40 +181,58 @@ class PublicacoesList(Resource):
     @publicacoes_ns.marshal_list_with(publicacao_model)
     def get(self):
         """Lista todas as publicações ou filtra por status"""
-        repository = SQLAlchemyPublicacaoRepository()
-        
-        status = request.args.get('status')
-        search = request.args.get('search')
-        limit = request.args.get('limit', type=int)
-        offset = request.args.get('offset', type=int)
-        
-        if search:
-            publicacoes = repository.search_by_content(search, limit or 50)
-        elif status:
-            publicacoes = repository.find_by_status(status, limit, offset)
-        else:
-            publicacoes = repository.find_all(limit, offset)
-        
-        publicacoes_dict = []
-        for pub in publicacoes:
-            publicacoes_dict.append({
-                'id': pub.id,
-                'numero_processo': pub.numero_processo,
-                'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
-                'autores': pub.autores,
-                'advogados': pub.advogados,
-                'conteudo_completo': pub.conteudo_completo,
-                'valor_principal_bruto': pub.valor_principal_bruto,
-                'valor_principal_liquido': pub.valor_principal_liquido,
-                'valor_juros_moratorios': pub.valor_juros_moratorios,
-                'honorarios_advocaticios': pub.honorarios_advocaticios,
-                'reu': pub.reu,
-                'status': pub.status,
-                'created_at': pub.created_at.isoformat() if pub.created_at else None,
-                'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
-            })
-        
-        return publicacoes_dict
+        try:
+            repository = SQLAlchemyPublicacaoRepository()
+            
+            status = request.args.get('status')
+            search = request.args.get('search')
+            limit = request.args.get('limit', type=int)
+            offset = request.args.get('offset', type=int)
+            
+            if search:
+                publicacoes = repository.search_by_content(search, limit or 50)
+            elif status:
+                publicacoes = repository.find_by_status(status, limit, offset)
+            else:
+                publicacoes = repository.find_all(limit, offset)
+            
+            publicacoes_dict = []
+            for pub in publicacoes:
+                publicacoes_dict.append({
+                    'id': pub.id,
+                    'numero_processo': pub.numero_processo,
+                    'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
+                    'autores': pub.autores,
+                    'advogados': pub.advogados,
+                    'conteudo_completo': pub.conteudo_completo,
+                    'valor_principal_bruto': pub.valor_principal_bruto,
+                    'valor_principal_liquido': pub.valor_principal_liquido,
+                    'valor_juros_moratorios': pub.valor_juros_moratorios,
+                    'honorarios_advocaticios': pub.honorarios_advocaticios,
+                    'reu': pub.reu,
+                    'status': pub.status,
+                    'created_at': pub.created_at.isoformat() if pub.created_at else None,
+                    'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
+                })
+            
+            return publicacoes_dict
+            
+        except Exception as e:
+            # Se tabela não existe, retornar array vazio com aviso
+            if "does not exist" in str(e) or "relation" in str(e).lower():
+                return {
+                    'error': 'Tabela publicacoes não existe',
+                    'message': 'Use o endpoint /api/publicacoes/setup-database para criar a tabela',
+                    'data': [],
+                    'status': 'table_not_found'
+                }, 200
+            else:
+                # Outros erros
+                return {
+                    'error': str(e),
+                    'message': 'Erro interno do servidor',
+                    'status': 'error'
+                }, 500
 
 @publicacoes_ns.route('/stats')
 class PublicacoesStats(Resource):
