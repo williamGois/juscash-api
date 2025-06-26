@@ -82,7 +82,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-juscash}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-juscash123_CHANGE_ME}
       - PYTHONUNBUFFERED=1
-      - GUNICORN_CMD_ARGS="--workers=2 --threads=2 --worker-class=sync --worker-tmp-dir=/dev/shm --max-requests=1000 --max-requests-jitter=50"
+
     ports:
       - "127.0.0.1:5000:5000"
     depends_on:
