@@ -54,12 +54,10 @@ jobs:
         script: |
           set -e
           
-          # Criar arquivo de log único para este deploy
           LOG_DIR="/var/www/juscash/logs"
           mkdir -p "$LOG_DIR"
           LOG_FILE="$LOG_DIR/deploy_$(date +%Y%m%d_%H%M%S).log"
           
-          # Função para log
           log() {
               echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
           }
@@ -67,106 +65,120 @@ jobs:
           log "=== INICIANDO DEPLOY ==="
           log "Commit: ${{ github.sha }}"
           
-          # 1. Navegar para o diretório
           cd /var/www/juscash
-          log "✓ Etapa 1/16: Diretório atual: $(pwd)"
+          log "✓ Etapa 1/18: Diretório atual: $(pwd)"
           
-          # 2. Fazer backup do .env se existir
           if [ -f .env ]; then
               cp .env .env.backup_$(date +%Y%m%d_%H%M%S)
-              log "✓ Etapa 2/16: Backup do .env criado"
+              log "✓ Etapa 2/18: Backup do .env criado"
           else
-              log "✓ Etapa 2/16: Arquivo .env não existe, pulando backup"
+              log "✓ Etapa 2/18: Arquivo .env não existe, pulando backup"
           fi
           
-          # 3. Stash de mudanças locais
           git stash --include-untracked || true
-          log "✓ Etapa 3/16: Mudanças locais salvas com stash"
+          log "✓ Etapa 3/18: Mudanças locais salvas com stash"
           
-          # 4. Atualizar código
           git fetch origin
           git reset --hard origin/master
-          log "✓ Etapa 4/16: Código atualizado do repositório"
+          log "✓ Etapa 4/18: Código atualizado do repositório"
           
-          # 5. Parar apenas o container web (preservar banco)
-          docker-compose stop web || true
-          docker-compose rm -f web || true
-          log "✓ Etapa 5/16: Container web parado"
+          docker-compose -f docker-compose.prod.yml stop web || true
+          docker-compose -f docker-compose.prod.yml rm -f web || true
+          log "✓ Etapa 5/18: Container web parado"
           
-          # 6. Remover imagem antiga do web
           docker rmi juscash-api-web:latest || true
+          docker rmi juscash_web:prod || true
           docker rmi $(docker images -q --filter "reference=juscash-api-web") || true
-          log "✓ Etapa 6/16: Imagem antiga do web removida"
+          log "✓ Etapa 6/18: Imagem antiga do web removida"
           
-          # 7. Criar arquivo VERSION
-          rm -rf VERSION
           echo "${{ github.sha }}" > VERSION
-          log "✓ Etapa 7/16: Arquivo VERSION criado com hash: ${{ github.sha }}"
+          log "✓ Etapa 7/18: Arquivo VERSION criado com hash: ${{ github.sha }}"
           
-          # 8. Garantir que docker-compose.yml está atualizado
-          if [ -f docker-compose.yml ]; then
-              log "✓ Etapa 8/16: docker-compose.yml existe"
+          if [ ! -f .env ]; then
+              log "✓ Etapa 8/18: Criando arquivo .env de produção"
+              SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
+              POSTGRES_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+              
+              cat > .env << EOF
+          PRODUCTION=true
+          FLASK_ENV=production
+          SECRET_KEY=${SECRET_KEY}
+          POSTGRES_DB=juscash_db
+          POSTGRES_USER=juscash
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db
+          REDIS_URL=redis://redis:6379/0
+          DJE_BASE_URL=https://dje.tjsp.jus.br/cdje
+          SCRAPING_ENABLED=true
+          DAILY_SCRAPING_SCHEDULE=3600
+          WEEKLY_SCRAPING_SCHEDULE=604800
+          CLEANUP_SCHEDULE=86400
+          DB_POOL_SIZE=10
+          DB_POOL_RECYCLE=300
+          FLOWER_USER=admin
+          FLOWER_PASSWORD=juscash2024
+          EOF
+              log "✓ Arquivo .env criado com senhas seguras"
           else
-              log "✗ ERRO: docker-compose.yml não encontrado!"
-              exit 1
+              log "✓ Etapa 8/18: Arquivo .env já existe"
           fi
           
-          # 9. Iniciar banco de dados e redis
-          docker-compose up -d db redis
-          log "✓ Etapa 9/16: Banco de dados e Redis iniciados"
+          docker-compose -f docker-compose.prod.yml up -d db redis
+          log "✓ Etapa 9/18: Banco de dados e Redis iniciados"
           
-          # 10. Aguardar banco de dados ficar pronto
           log "Aguardando banco de dados ficar pronto..."
           for i in {1..30}; do
-              if docker-compose exec -T db pg_isready -U juscash > /dev/null 2>&1; then
-                  log "✓ Etapa 10/16: Banco de dados está pronto"
+              if docker-compose -f docker-compose.prod.yml exec -T db pg_isready -U juscash > /dev/null 2>&1; then
+                  log "✓ Etapa 10/18: Banco de dados está pronto"
                   break
               fi
               if [ $i -eq 30 ]; then
                   log "✗ ERRO: Banco de dados não ficou pronto após 30 tentativas"
-                  docker-compose logs db | tail -20 >> "$LOG_FILE"
+                  docker-compose -f docker-compose.prod.yml logs db | tail -20 >> "$LOG_FILE"
                   exit 1
               fi
               sleep 2
           done
           
-          # 11. Criar banco de dados se não existir
           log "Configurando banco de dados..."
-          docker-compose exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
-          log "✓ Etapa 11/16: Banco de dados criado ou já existente."
+          docker-compose -f docker-compose.prod.yml exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
+          log "✓ Etapa 11/18: Banco de dados criado ou já existente"
           
-          # 12. Reconstruir imagem web
-          docker-compose build --no-cache web
-          log "✓ Etapa 12/16: Nova imagem web construída"
+          docker-compose -f docker-compose.prod.yml build --no-cache web
+          log "✓ Etapa 12/18: Nova imagem web construída"
           
-          # 13. Iniciar container web
-          docker-compose up -d web
-          log "✓ Etapa 13/16: Container web iniciado"
+          docker-compose -f docker-compose.prod.yml up -d web
+          log "✓ Etapa 13/18: Container web iniciado"
           
-          # 14. Aguardar aplicação ficar pronta
           log "Aguardando aplicação iniciar..."
-          sleep 10
+          sleep 30
           
-          # 15. Verificar se aplicação está rodando
-          if docker-compose ps | grep -q "juscash_web.*Up"; then
-              log "✓ Etapa 15/16: Container web está rodando"
+          if docker-compose -f docker-compose.prod.yml ps | grep -q "juscash_web_prod.*Up"; then
+              log "✓ Etapa 14/18: Container web está rodando"
           else
               log "✗ ERRO: Container web não está rodando"
-              docker-compose logs web | tail -50 >> "$LOG_FILE"
+              docker-compose -f docker-compose.prod.yml logs web | tail -50 >> "$LOG_FILE"
               exit 1
           fi
           
-          # 16. Testar endpoint
+          log "Verificando criação de tabelas..."
+          log "✓ Etapa 15/18: Tabelas serão criadas automaticamente pelo run.py"
+          
+          docker-compose -f docker-compose.prod.yml up -d worker
+          log "✓ Etapa 16/18: Worker Celery iniciado"
+          
+          docker-compose -f docker-compose.prod.yml up -d flower
+          log "✓ Etapa 17/18: Flower iniciado"
+          
           log "Testando endpoint da API..."
           RESPONSE=$(curl -s http://localhost:5000/api/simple/ping || echo "ERRO")
-          log "✓ Etapa 16/16: Resposta da API: $RESPONSE"
+          log "✓ Etapa 18/18: Resposta da API: $RESPONSE"
           
           log "=== DEPLOY CONCLUÍDO COM SUCESSO ==="
           log "Versão deployada: ${{ github.sha }}"
           
-          # Mostrar logs finais
           echo "=== LOGS DO CONTAINER WEB ==="
-          docker-compose logs --tail=20 web
+          docker-compose -f docker-compose.prod.yml logs --tail=20 web
           
           echo "=== STATUS DOS CONTAINERS ==="
-          docker-compose ps 
+          docker-compose -f docker-compose.prod.yml ps 
