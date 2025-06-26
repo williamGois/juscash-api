@@ -126,25 +126,23 @@ jobs:
               POSTGRES_PASSWORD=$(python3 -c 'import secrets,random,string,sys;sys.stdout.write("".join(random.choices(string.ascii_letters+string.digits,k=32)))') || error_exit "Falha ao gerar POSTGRES_PASSWORD"
 
               log "Criando arquivo .env pela primeira vez..."
-              cat > .env <<EOF
-PRODUCTION=true
-FLASK_ENV=production
-SECRET_KEY=${SECRET_KEY}
-POSTGRES_DB=juscash_db
-POSTGRES_USER=juscash
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db
-REDIS_URL=redis://redis:6379/0
-DJE_BASE_URL=https://dje.tjsp.jus.br/cdje
-SCRAPING_ENABLED=true
-DAILY_SCRAPING_SCHEDULE=3600
-WEEKLY_SCRAPING_SCHEDULE=604800
-CLEANUP_SCHEDULE=86400
-DB_POOL_SIZE=10
-DB_POOL_RECYCLE=300
-FLOWER_USER=admin
-FLOWER_PASSWORD=juscash2024
-EOF
+              echo "PRODUCTION=true" > .env
+              echo "FLASK_ENV=production" >> .env
+              echo "SECRET_KEY=${SECRET_KEY}" >> .env
+              echo "POSTGRES_DB=juscash_db" >> .env
+              echo "POSTGRES_USER=juscash" >> .env
+              echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> .env
+              echo "DATABASE_URL=postgresql://juscash:${POSTGRES_PASSWORD}@db:5432/juscash_db" >> .env
+              echo "REDIS_URL=redis://redis:6379/0" >> .env
+              echo "DJE_BASE_URL=https://dje.tjsp.jus.br/cdje" >> .env
+              echo "SCRAPING_ENABLED=true" >> .env
+              echo "DAILY_SCRAPING_SCHEDULE=3600" >> .env
+              echo "WEEKLY_SCRAPING_SCHEDULE=604800" >> .env
+              echo "CLEANUP_SCHEDULE=86400" >> .env
+              echo "DB_POOL_SIZE=10" >> .env
+              echo "DB_POOL_RECYCLE=300" >> .env
+              echo "FLOWER_USER=admin" >> .env
+              echo "FLOWER_PASSWORD=juscash2024" >> .env
               log "✓ Arquivo .env criado com POSTGRES_PASSWORD=${POSTGRES_PASSWORD:0:8}..."
           fi
           
