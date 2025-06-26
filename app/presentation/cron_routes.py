@@ -156,47 +156,6 @@ class HealthCheck(Resource):
                 'timestamp': datetime.now().isoformat()
             }, 500
 
-@cron_ns.route('/tasks/<string:task_id>')
-class TaskStatus(Resource):
-    @cron_ns.doc('get_task_status')
-    def get(self, task_id):
-        """Verificar status de uma tarefa específica"""
-        try:
-            from celery.result import AsyncResult
-            from celery import current_app as celery_app
-            
-            task = AsyncResult(task_id, app=celery_app)
-            
-            if task.state == 'PENDING':
-                response = {
-                    'state': task.state,
-                    'status': 'Tarefa pendente'
-                }
-            elif task.state == 'PROGRESS':
-                response = {
-                    'state': task.state,
-                    'current': task.info.get('current', 0) if task.info else 0,
-                    'total': task.info.get('total', 1) if task.info else 1,
-                    'status': task.info.get('status', '') if task.info else ''
-                }
-            elif task.state == 'SUCCESS':
-                response = {
-                    'state': task.state,
-                    'result': task.result
-                }
-            else:
-                response = {
-                    'state': task.state,
-                    'error': str(task.info) if task.info else 'Erro desconhecido'
-                }
-            
-            return response
-        except Exception as e:
-            return {
-                'state': 'ERROR',
-                'error': f'Erro ao verificar status: {str(e)}'
-            }, 500
-
 @cron_ns.route('/tasks/active')
 class ActiveTasks(Resource):
     @cron_ns.doc('list_active_tasks')
@@ -289,7 +248,48 @@ class WorkerStats(Resource):
             return result
             
         except Exception as e:
+                         return {
+                 'error': f'Erro ao obter estatísticas dos workers: {str(e)}',
+                 'timestamp': datetime.now().isoformat()
+             }, 500
+
+@cron_ns.route('/tasks/<string:task_id>')
+class TaskStatus(Resource):
+    @cron_ns.doc('get_task_status')
+    def get(self, task_id):
+        """Verificar status de uma tarefa específica"""
+        try:
+            from celery.result import AsyncResult
+            from celery import current_app as celery_app
+            
+            task = AsyncResult(task_id, app=celery_app)
+            
+            if task.state == 'PENDING':
+                response = {
+                    'state': task.state,
+                    'status': 'Tarefa pendente'
+                }
+            elif task.state == 'PROGRESS':
+                response = {
+                    'state': task.state,
+                    'current': task.info.get('current', 0) if task.info else 0,
+                    'total': task.info.get('total', 1) if task.info else 1,
+                    'status': task.info.get('status', '') if task.info else ''
+                }
+            elif task.state == 'SUCCESS':
+                response = {
+                    'state': task.state,
+                    'result': task.result
+                }
+            else:
+                response = {
+                    'state': task.state,
+                    'error': str(task.info) if task.info else 'Erro desconhecido'
+                }
+            
+            return response
+        except Exception as e:
             return {
-                'error': f'Erro ao obter estatísticas dos workers: {str(e)}',
-                'timestamp': datetime.now().isoformat()
+                'state': 'ERROR',
+                'error': f'Erro ao verificar status: {str(e)}'
             }, 500
