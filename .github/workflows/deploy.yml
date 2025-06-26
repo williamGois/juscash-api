@@ -64,11 +64,12 @@ jobs:
           git fetch origin
           git reset --hard origin/${{ github.ref_name }}
           
-          # 4. Parar containers antigos primeiro
-          docker-compose down --remove-orphans
+          # 4. Parar apenas o container web (preservar banco)
+          docker-compose stop web
+          docker-compose rm -f web
           
           # 5. Build otimizado (sem --no-cache para ser mais rápido)
-          docker-compose build
+          docker-compose build web
           
           # 6. Iniciar containers
           docker-compose up -d
