@@ -5,7 +5,8 @@ Implementei várias ferramentas de monitoramento visual para os containers Docke
 ## 🎛️ **Ferramentas Disponíveis**
 
 ### 1. **Portainer** - Interface Visual Principal
-- **URL**: `http://77.37.68.178:9000`
+- **URL**: `https://portainer.juscash.app` 🌐
+- **Fallback**: `http://77.37.68.178:9000`
 - **Descrição**: Interface gráfica completa para gerenciar Docker
 - **Funcionalidades**:
   - ✅ Visualizar todos os containers
@@ -16,7 +17,8 @@ Implementei várias ferramentas de monitoramento visual para os containers Docke
   - ✅ Interface tipo Railway
 
 ### 2. **cAdvisor** - Métricas Detalhadas
-- **URL**: `http://77.37.68.178:8080`
+- **URL**: `https://cadvisor.juscash.app` 🌐
+- **Fallback**: `http://77.37.68.178:8080`
 - **Descrição**: Monitoramento de performance dos containers
 - **Funcionalidades**:
   - 📊 Gráficos de CPU e memória
@@ -25,7 +27,8 @@ Implementei várias ferramentas de monitoramento visual para os containers Docke
   - 📱 Interface responsiva
 
 ### 3. **Flower** - Monitor Celery
-- **URL**: `http://77.37.68.178:5555`
+- **URL**: `https://flower.juscash.app` 🌐
+- **Fallback**: `http://77.37.68.178:5555`
 - **Descrição**: Monitoramento das tarefas Celery
 - **Funcionalidades**:
   - 🌸 Tasks em execução
@@ -161,13 +164,41 @@ curl https://cron.juscash.app/api/simple/dashboard
 
 ## 🎯 **URLs de Acesso Rápido**
 
-| Ferramenta | URL | Descrição |
-|------------|-----|-----------|
-| **Portainer** | http://77.37.68.178:9000 | Interface Docker principal |
-| **cAdvisor** | http://77.37.68.178:8080 | Métricas de performance |
-| **Flower** | http://77.37.68.178:5555 | Monitor Celery |
-| **Dashboard** | https://cron.juscash.app/api/simple/dashboard-ui | Dashboard customizado |
-| **API Docs** | https://cron.juscash.app/docs/ | Documentação Swagger |
+| Ferramenta | URL Principal | URL Fallback | Descrição |
+|------------|---------------|--------------|-----------|
+| 🎛️ **Portainer** | https://portainer.juscash.app | http://77.37.68.178:9000 | Interface Docker principal |
+| 📊 **cAdvisor** | https://cadvisor.juscash.app | http://77.37.68.178:8080 | Métricas de performance |
+| 🌸 **Flower** | https://flower.juscash.app | http://77.37.68.178:5555 | Monitor Celery |
+| 🎨 **Dashboard** | https://cron.juscash.app/api/simple/dashboard-ui | - | Dashboard customizado |
+| 📚 **API Docs** | https://cron.juscash.app/docs/ | - | Documentação Swagger |
+
+## 🌐 **Configuração de Subdomínios**
+
+### Para ativar os subdomínios na VPS:
+
+```bash
+# 1. Fazer pull das configurações
+cd /root/juscash-api
+git pull origin master
+
+# 2. Executar script de configuração (como root)
+sudo ./scripts/setup-subdomains.sh
+
+# 3. Verificar status dos certificados SSL
+sudo certbot certificates
+
+# 4. Testar configuração nginx
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Configurações DNS necessárias:
+
+Adicione estes registros A no seu provedor DNS:
+```
+portainer.juscash.app    A    77.37.68.178
+cadvisor.juscash.app     A    77.37.68.178  
+flower.juscash.app       A    77.37.68.178
+```
 
 ## 🔄 **Auto-Deploy**
 

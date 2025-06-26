@@ -1031,14 +1031,20 @@ class DockerDashboard(Resource):
         
         # URLs de monitoramento
         dashboard['monitoring_urls'] = {
-            'portainer': 'http://77.37.68.178:9000',
-            'cadvisor': 'http://77.37.68.178:8080',
-            'flower': 'http://77.37.68.178:5555',
+            'portainer': 'https://portainer.juscash.app',
+            'cadvisor': 'https://cadvisor.juscash.app',
+            'flower': 'https://flower.juscash.app',
             'api_docs': 'https://cron.juscash.app/docs/',
+            'dashboard_ui': 'https://cron.juscash.app/api/simple/dashboard-ui',
             'health_checks': {
                 'api': 'https://cron.juscash.app/api/simple/ping',
                 'database': 'https://cron.juscash.app/api/publicacoes/health',
                 'env_check': 'https://cron.juscash.app/api/simple/env-check'
+            },
+            'legacy_ips': {
+                'portainer_ip': 'http://77.37.68.178:9000',
+                'cadvisor_ip': 'http://77.37.68.178:8080',
+                'flower_ip': 'http://77.37.68.178:5555'
             }
         }
         
