@@ -46,6 +46,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - FLASK_ENV=production
       - SECRET_KEY=your-secret-key-here
+      - POSTGRES_USER=juscash
+      - POSTGRES_PASSWORD=juscash123
+      - POSTGRES_DB=juscash_db
     volumes:
       - .:/app
       - ./logs:/app/logs
