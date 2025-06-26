@@ -170,7 +170,6 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - SECRET_KEY=${SECRET_KEY:-temp-secret-key-CHANGE-ME}
       - PYTHONUNBUFFERED=1
-      - FLOWER_BASIC_AUTH=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-juscash2024}
     ports:
       - "127.0.0.1:5555:5555"
     depends_on:
@@ -181,7 +180,7 @@ services:
     networks:
       - juscash_network
     working_dir: /app
-    command: ["sh", "-c", "sleep 10 && celery -A celery_worker.celery flower --address=0.0.0.0 --port=5555"]
+    command: ["sh", "-c", "sleep 10 && celery -A celery_worker.celery flower --address=0.0.0.0 --port=5555 --basic_auth=admin:juscash2024"]
     deploy:
       resources:
         limits:
