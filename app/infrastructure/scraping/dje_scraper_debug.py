@@ -106,13 +106,13 @@ class DJEScraperDebug:
                 # Usar chromium-driver diretamente
                 try:
                     self.driver = webdriver.Chrome(
-                        service=Service('/usr/bin/chromium-driver'),
+                        service=Service('/usr/bin/chromedriver'),
                         options=chrome_options
                     )
-                    logging.info("✅ Driver inicializado com chromium-driver")
+                    logging.info("✅ Driver inicializado com chromedriver")
                     break
                 except Exception as e:
-                    logging.warning(f"Chromium-driver falhou: {e}")
+                    logging.warning(f"ChromeDriver falhou: {e}")
                     
                     # Fallback para webdriver-manager
                     try:
