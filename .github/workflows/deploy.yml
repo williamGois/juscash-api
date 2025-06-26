@@ -13,6 +13,7 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     
     steps:
     - uses: actions/checkout@v3
@@ -35,6 +36,7 @@ jobs:
     name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 30
     if: github.event_name == 'push'
     
     steps:
@@ -46,11 +48,13 @@ jobs:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
+        timeout: 20m
+        command_timeout: 20m
         script: |
           cd /var/www/juscash
           
-          # 1. Backup do banco
-          docker-compose exec -T db pg_dump -U juscash juscash_db > /tmp/backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || true
+          # 1. Backup do banco (opcional)
+          # docker-compose exec -T db pg_dump -U juscash juscash_db > /tmp/backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || true
           
           # 2. Limpar conflitos Git
           git stash --include-untracked
@@ -60,17 +64,32 @@ jobs:
           git fetch origin
           git reset --hard origin/${{ github.ref_name }}
           
-          # 4. Rebuild e restart
-          docker-compose down
-          docker-compose build --no-cache
+          # 4. Parar containers antigos primeiro
+          docker-compose down --remove-orphans
+          
+          # 5. Build otimizado (sem --no-cache para ser mais rápido)
+          docker-compose build
+          
+          # 6. Iniciar containers
           docker-compose up -d
           
-          # 5. Aplicar migrações
-          sleep 10
+          # 7. Aguardar inicialização
+          echo "⏳ Aguardando containers iniciarem..."
+          sleep 15
+          
+          # 8. Aplicar migrações
           docker-compose exec -T web flask db upgrade || true
           
-          # 6. Verificar se está rodando
-          sleep 5
-          curl -f http://localhost:5000/api/simple/ping || exit 1
+          # 9. Verificar se está rodando
+          for i in {1..10}; do
+            if curl -f -s http://localhost:5000/api/simple/ping; then
+              echo "✅ API respondendo!"
+              exit 0
+            fi
+            echo "Tentativa $i/10..."
+            sleep 3
+          done
           
-          echo "✅ Deploy concluído com sucesso!" 
+          echo "❌ API não respondeu após 10 tentativas"
+          docker-compose logs --tail=50
+          exit 1 
