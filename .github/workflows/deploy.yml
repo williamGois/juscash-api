@@ -42,75 +42,151 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Deploy to VPS
-      uses: appleboy/ssh-action@v0.1.5
+    - name: Deploy na VPS
+      uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        timeout: 20m
-        command_timeout: 20m
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT }}
+        script_stop: true
+        timeout: 30m
         script: |
-          cd /var/www/juscash
+          set -e
           
-          # 1. Backup do banco (opcional)
-          # docker-compose exec -T db pg_dump -U juscash juscash_db > /tmp/backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || true
+          # Criar arquivo de log único para este deploy
+          LOG_DIR="/var/www/juscash/logs"
+          mkdir -p "$LOG_DIR"
+          LOG_FILE="$LOG_DIR/deploy_$(date +%Y%m%d_%H%M%S).log"
           
-          # 2. Limpar conflitos Git
-          git stash --include-untracked
-          git clean -fd
-          
-          # 3. Atualizar código
-          git fetch origin
-          git reset --hard origin/${{ github.ref_name }}
-          
-          # 4. Parar apenas o container web (preservar banco)
-          docker-compose stop web
-          docker-compose rm -f web
-          
-          # 5. Build otimizado (sem --no-cache para ser mais rápido)
-          docker-compose build web
-          
-          # 6. Iniciar containers
-          docker-compose up -d
-          
-          # 7. Aguardar inicialização
-          echo "⏳ Aguardando containers iniciarem..."
-          sleep 15
-          
-          # 7.5. Configurar banco de dados
-          echo "🗄️ Configurando banco de dados..."
-          docker-compose exec -T db psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname='juscash_db'" | grep -q 1 || {
-              echo "📝 Criando usuário e banco..."
-              docker-compose exec -T db psql -U postgres <<EOF
-          DO \$\$
-          BEGIN
-              IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'juscash') THEN
-                  CREATE USER juscash WITH PASSWORD 'juscash123';
-              END IF;
-          END
-          \$\$;
-          
-          SELECT 'CREATE DATABASE juscash_db OWNER juscash'
-          WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'juscash_db')\gexec
-          
-          GRANT ALL PRIVILEGES ON DATABASE juscash_db TO juscash;
-          EOF
+          # Função para log
+          log() {
+              echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
           }
           
-          # 8. Aplicar migrações
-          docker-compose exec -T web flask db upgrade || true
+          log "=== INICIANDO DEPLOY ==="
+          log "Commit: ${{ github.sha }}"
           
-          # 9. Verificar se está rodando
-          for i in {1..10}; do
-            if curl -f -s http://localhost:5000/api/simple/ping; then
-              echo "✅ API respondendo!"
-              exit 0
-            fi
-            echo "Tentativa $i/10..."
-            sleep 3
+          # 1. Navegar para o diretório
+          cd /var/www/juscash
+          log "✓ Etapa 1/16: Diretório atual: $(pwd)"
+          
+          # 2. Fazer backup do .env se existir
+          if [ -f .env ]; then
+              cp .env .env.backup_$(date +%Y%m%d_%H%M%S)
+              log "✓ Etapa 2/16: Backup do .env criado"
+          else
+              log "✓ Etapa 2/16: Arquivo .env não existe, pulando backup"
+          fi
+          
+          # 3. Stash de mudanças locais
+          git stash --include-untracked || true
+          log "✓ Etapa 3/16: Mudanças locais salvas com stash"
+          
+          # 4. Atualizar código
+          git fetch origin
+          git reset --hard origin/master
+          log "✓ Etapa 4/16: Código atualizado do repositório"
+          
+          # 5. Parar apenas o container web (preservar banco)
+          docker-compose stop web || true
+          docker-compose rm -f web || true
+          log "✓ Etapa 5/16: Container web parado"
+          
+          # 6. Remover imagem antiga do web
+          docker rmi juscash-api-web:latest || true
+          docker rmi $(docker images -q --filter "reference=juscash-api-web") || true
+          log "✓ Etapa 6/16: Imagem antiga do web removida"
+          
+          # 7. Criar arquivo VERSION
+          echo "${{ github.sha }}" > VERSION
+          log "✓ Etapa 7/16: Arquivo VERSION criado com hash: ${{ github.sha }}"
+          
+          # 8. Garantir que docker-compose.yml está atualizado
+          if [ -f docker-compose.yml ]; then
+              log "✓ Etapa 8/16: docker-compose.yml existe"
+          else
+              log "✗ ERRO: docker-compose.yml não encontrado!"
+              exit 1
+          fi
+          
+          # 9. Iniciar banco de dados e redis
+          docker-compose up -d db redis
+          log "✓ Etapa 9/16: Banco de dados e Redis iniciados"
+          
+          # 10. Aguardar banco de dados ficar pronto
+          log "Aguardando banco de dados ficar pronto..."
+          for i in {1..30}; do
+              if docker-compose exec -T db pg_isready -U juscash > /dev/null 2>&1; then
+                  log "✓ Etapa 10/16: Banco de dados está pronto"
+                  break
+              fi
+              if [ $i -eq 30 ]; then
+                  log "✗ ERRO: Banco de dados não ficou pronto após 30 tentativas"
+                  docker-compose logs db | tail -20 >> "$LOG_FILE"
+                  exit 1
+              fi
+              sleep 2
           done
           
-          echo "❌ API não respondeu após 10 tentativas"
-          docker-compose logs --tail=50
-          exit 1 
+          # 11. Criar usuário e banco se não existirem
+          log "Configurando banco de dados..."
+          
+          # Primeiro, tentar criar o banco usando o usuário padrão postgres
+          docker-compose exec -T db psql -U postgres -c "SELECT 1" > /dev/null 2>&1 || {
+              # Se postgres não existe, usar o usuário juscash que foi criado pelo POSTGRES_USER
+              docker-compose exec -T db psql -U juscash -d postgres -c "CREATE DATABASE juscash_db;" 2>/dev/null || true
+              log "✓ Etapa 11/16: Banco de dados configurado"
+          }
+          
+          # Se conseguiu conectar com postgres, criar usuário e banco
+          if docker-compose exec -T db psql -U postgres -c "SELECT 1" > /dev/null 2>&1; then
+              docker-compose exec -T db psql -U postgres <<EOF || true
+              DO \$\$
+              BEGIN
+                  IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'juscash') THEN
+                      CREATE USER juscash WITH PASSWORD 'juscash123';
+                  END IF;
+              END\$\$;
+              
+              CREATE DATABASE juscash_db OWNER juscash;
+              GRANT ALL PRIVILEGES ON DATABASE juscash_db TO juscash;
+EOF
+              log "✓ Etapa 11/16: Usuário e banco criados/verificados"
+          fi
+          
+          # 12. Reconstruir imagem web
+          docker-compose build --no-cache web
+          log "✓ Etapa 12/16: Nova imagem web construída"
+          
+          # 13. Iniciar container web
+          docker-compose up -d web
+          log "✓ Etapa 13/16: Container web iniciado"
+          
+          # 14. Aguardar aplicação ficar pronta
+          log "Aguardando aplicação iniciar..."
+          sleep 10
+          
+          # 15. Verificar se aplicação está rodando
+          if docker-compose ps | grep -q "juscash_web.*Up"; then
+              log "✓ Etapa 15/16: Container web está rodando"
+          else
+              log "✗ ERRO: Container web não está rodando"
+              docker-compose logs web | tail -50 >> "$LOG_FILE"
+              exit 1
+          fi
+          
+          # 16. Testar endpoint
+          log "Testando endpoint da API..."
+          RESPONSE=$(curl -s http://localhost:5000/api/simple/ping || echo "ERRO")
+          log "✓ Etapa 16/16: Resposta da API: $RESPONSE"
+          
+          log "=== DEPLOY CONCLUÍDO COM SUCESSO ==="
+          log "Versão deployada: ${{ github.sha }}"
+          
+          # Mostrar logs finais
+          echo "=== LOGS DO CONTAINER WEB ==="
+          docker-compose logs --tail=20 web
+          
+          echo "=== STATUS DOS CONTAINERS ==="
+          docker-compose ps 

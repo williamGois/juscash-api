@@ -1,36 +1,64 @@
 #!/bin/bash
 
-echo "🔧 Corrigindo banco de dados na VPS"
+set -e
+
+echo "=== CORRIGINDO BANCO DE DADOS ==="
 
 cd /var/www/juscash
 
-# 1. Parar apenas o web
-echo "🛑 Parando container web..."
-docker-compose stop web
+echo "1. Parando containers..."
+docker-compose stop
 
-# 2. Recriar banco se necessário
-echo "🗄️ Verificando banco de dados..."
-docker-compose exec -T db psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname='juscash_db'" | grep -q 1 || {
-    echo "📝 Criando banco de dados..."
-    docker-compose exec -T db psql -U postgres <<EOF
-CREATE USER juscash WITH PASSWORD 'juscash123';
-CREATE DATABASE juscash_db OWNER juscash;
-GRANT ALL PRIVILEGES ON DATABASE juscash_db TO juscash;
-EOF
+echo "2. Removendo container do banco..."
+docker-compose rm -f db
+
+echo "3. Removendo volume do banco para recriá-lo..."
+docker volume rm juscash-api_postgres_data || true
+
+echo "4. Iniciando banco de dados limpo..."
+docker-compose up -d db
+
+echo "5. Aguardando banco ficar pronto..."
+for i in {1..30}; do
+    if docker-compose exec -T db pg_isready -U juscash > /dev/null 2>&1; then
+        echo "✓ Banco de dados está pronto!"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "✗ ERRO: Banco de dados não ficou pronto"
+        docker-compose logs db
+        exit 1
+    fi
+    echo -n "."
+    sleep 2
+done
+
+echo ""
+echo "6. Verificando criação do banco..."
+docker-compose exec -T db psql -U juscash -d juscash_db -c "SELECT version();" || {
+    echo "✗ ERRO: Banco não foi criado corretamente"
+    docker-compose logs db
+    exit 1
 }
 
-# 3. Reiniciar web
-echo "🚀 Reiniciando web..."
+echo "7. Iniciando Redis..."
+docker-compose up -d redis
+
+echo "8. Aguardando Redis..."
+sleep 5
+
+echo "9. Iniciando aplicação web..."
 docker-compose up -d web
 
-# 4. Aguardar
-echo "⏳ Aguardando..."
+echo "10. Aguardando aplicação..."
 sleep 10
 
-# 5. Aplicar migrações
-echo "🗄️ Aplicando migrações..."
-docker-compose exec -T web flask db upgrade
+echo "11. Verificando status..."
+docker-compose ps
 
-# 6. Testar
-echo "🏥 Testando API..."
-curl -f http://localhost:5000/api/simple/ping && echo "✅ API funcionando!" || echo "❌ API com problemas" 
+echo "12. Testando API..."
+curl -s http://localhost:5000/api/simple/ping || echo "API ainda não está respondendo"
+
+echo ""
+echo "=== BANCO DE DADOS CORRIGIDO ==="
+echo "Use 'docker-compose logs -f' para acompanhar os logs" 
