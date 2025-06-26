@@ -15,6 +15,9 @@ COPY wait-for-it.sh .
 # Copy application code
 COPY . .
 
+# Set execute permissions for scripts
+RUN chmod +x docker-entrypoint.sh wait-for-it.sh
+
 # Create logs directory
 RUN mkdir -p logs
 
