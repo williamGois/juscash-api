@@ -1,6 +1,26 @@
 # JusCash API
 
-Sistema de extração e análise de publicações jurídicas do Diário de Justiça Eletrônico.
+## Descrição
+API para extração e análise de publicações do Diário da Justiça Eletrônico (DJE).
+
+## Funcionalidades
+- Extração automatizada de publicações do DJE
+- API RESTful para consulta de dados
+- Sistema de scraping com agendamento
+- Interface de monitoramento com Flower
+
+## Tecnologias
+- Python 3.11
+- Flask
+- PostgreSQL
+- Redis
+- Celery
+- Docker
+
+## Deploy
+O sistema é automaticamente deployado via GitHub Actions quando há push na branch master.
+
+<!-- Deploy timestamp: 2025-01-26 05:15:00 -->
 
 ## 🚀 Início Rápido
 
