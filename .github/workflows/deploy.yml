@@ -149,6 +149,11 @@ jobs:
           sed -i "s/return 'unknown'/return '\$(cat VERSION)'/g" app/presentation/routes.py || true
           sed -i "s/return 'error_reading_version'/return '\$(cat VERSION)'/g" app/presentation/routes.py || true
           
+          # 6.5. GARANTIR QUE O ARQUIVO VERSION SEJA COPIADO PARA O CONTAINER
+          echo "📋 Adicionando VERSION ao Dockerfile temporariamente..."
+          echo "COPY VERSION /app/VERSION" >> Dockerfile
+          echo "ENV DEPLOY_VERSION=${IMAGE_TAG:0:7}" >> Dockerfile
+          
           # 7. Build COMPLETAMENTE DO ZERO
           echo "🔨 Build COMPLETO do zero..."
           docker-compose build --no-cache --pull --force-rm
@@ -161,12 +166,11 @@ jobs:
           echo "⏳ Aguardando 60 segundos para inicialização completa..."
           sleep 60
           
-          # 10. Verificar status detalhado
-          echo "📊 Status detalhado dos containers:"
-          docker-compose ps
-          echo ""
-          echo "📋 Logs do container web:"
-          docker-compose logs web --tail=20
+          # 10. VERIFICAR SE O ARQUIVO VERSION ESTÁ NO CONTAINER
+          echo "🔍 Verificando se arquivo VERSION está no container..."
+          docker-compose exec -T web ls -la /app/VERSION || echo "❌ Arquivo VERSION não encontrado no container"
+          docker-compose exec -T web cat /app/VERSION || echo "❌ Não foi possível ler arquivo VERSION no container"
+          docker-compose exec -T web env | grep DEPLOY_VERSION || echo "❌ Variável DEPLOY_VERSION não encontrada"
           
           # 11. Teste da API com timeout muito maior
           echo "🏥 Testando API com timeout estendido..."

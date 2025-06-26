@@ -9,15 +9,44 @@ import os
 
 def get_version():
     """Lê a versão do arquivo VERSION na raiz do projeto."""
+    import os
+    
+    # Possíveis localizações do arquivo VERSION
+    possible_paths = [
+        # Dentro do container Docker
+        '/app/VERSION',
+        # Na raiz do projeto (desenvolvimento)
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'VERSION')),
+        # Caminho alternativo
+        './VERSION',
+        # Outro caminho possível
+        os.path.join(os.getcwd(), 'VERSION')
+    ]
+    
+    for path in possible_paths:
+        try:
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    version = f.read().strip()
+                    if version:  # Só retorna se não estiver vazio
+                        return version
+        except Exception:
+            continue
+    
+    # Se não encontrou em nenhum lugar, retorna um valor baseado no timestamp
+    # para pelo menos saber que o deploy foi executado
     try:
-        # O arquivo VERSION estará na raiz, dois níveis acima deste arquivo
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        with open(os.path.join(root_dir, 'VERSION'), 'r') as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return 'unknown'
-    except Exception:
-        return 'error_reading_version'
+        import subprocess
+        # Tentar obter hash do git se disponível
+        result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+    
+    # Última opção: usar variável de ambiente se disponível
+    return os.environ.get('DEPLOY_VERSION', 'unknown')
 
 publicacoes_ns = Namespace('publicacoes', description='Operações relacionadas às publicações do DJE')
 scraping_ns = Namespace('scraping', description='Operações de web scraping')

@@ -2,20 +2,20 @@
 
 # Script para monitorar o deploy em tempo real
 
-EXPECTED_VERSION="9f1299a"
+EXPECTED_VERSION="1996a80"
 API_URL="https://cron.juscash.app/api/simple/ping"
-MAX_ATTEMPTS=30
-INTERVAL=10
+MAX_ATTEMPTS=40
+INTERVAL=15
 
-echo "🔍 Monitorando deploy da versão: $EXPECTED_VERSION"
+echo "🔍 Monitorando deploy DRÁSTICO da versão: $EXPECTED_VERSION"
 echo "🌐 URL: $API_URL"
-echo "⏱️  Verificando a cada $INTERVAL segundos..."
+echo "⏱️  Verificando a cada $INTERVAL segundos (deploy mais demorado)..."
 echo ""
 
 for i in $(seq 1 $MAX_ATTEMPTS); do
     echo -n "[$i/$MAX_ATTEMPTS] $(date '+%H:%M:%S') - "
     
-    if RESPONSE=$(curl -f -s --max-time 10 "$API_URL" 2>/dev/null); then
+    if RESPONSE=$(curl -f -s --max-time 15 "$API_URL" 2>/dev/null); then
         # Extrair versão da resposta
         VERSION=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
         
@@ -29,7 +29,7 @@ for i in $(seq 1 $MAX_ATTEMPTS); do
             echo "⚠️  Versão atual: $VERSION (esperado: $EXPECTED_VERSION)"
         fi
     else
-        echo "❌ API não está respondendo"
+        echo "❌ API não está respondendo (normal durante rebuild drástico)"
     fi
     
     if [ $i -lt $MAX_ATTEMPTS ]; then
