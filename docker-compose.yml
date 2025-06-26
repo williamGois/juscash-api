@@ -1,58 +1,39 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
     container_name: juscash_db
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-juscash_db}
-      POSTGRES_USER: ${POSTGRES_USER:-juscash}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-juscash123}
+      POSTGRES_USER: juscash
+      POSTGRES_PASSWORD: juscash123
+      POSTGRES_DB: juscash_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-juscash} -d ${POSTGRES_DB:-juscash_db}"]
+      test: ["CMD-SHELL", "pg_isready -U juscash"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     networks:
       - juscash_network
 
   redis:
     image: redis:7-alpine
     container_name: juscash_redis
-    restart: unless-stopped
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     networks:
       - juscash_network
 
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: juscash_web:latest
+    build: .
     container_name: juscash_web
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY}
-      - FLASK_ENV=${FLASK_ENV:-production}
-      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
-      - PYTHONUNBUFFERED=1
     ports:
       - "5000:5000"
     depends_on:
@@ -60,67 +41,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./logs:/app/logs
-      - ./VERSION:/app/VERSION:ro
-    entrypoint: ["./docker-entrypoint.sh"]
-    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:create_app()"]
-    networks:
-      - juscash_network
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: juscash_worker:latest
-    container_name: juscash_worker
-    restart: unless-stopped
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY}
-      - FLASK_ENV=${FLASK_ENV:-production}
-      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
-      - PYTHONUNBUFFERED=1
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - DATABASE_URL=postgresql://juscash:juscash123@db:5432/juscash_db
+      - REDIS_URL=redis://redis:6379/0
+      - FLASK_ENV=production
+      - SECRET_KEY=your-secret-key-here
     volumes:
+      - .:/app
       - ./logs:/app/logs
-    entrypoint: ["./docker-entrypoint.sh"]
-    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1"]
-    networks:
-      - juscash_network
-
-  flower:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: juscash_flower:latest
-    container_name: juscash_flower
+    command: python run.py
     restart: unless-stopped
-    environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY}
-      - PYTHONUNBUFFERED=1
-    ports:
-      - "5555:5555"
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./logs:/app/logs
-    entrypoint: ["./docker-entrypoint.sh"]  
-    command: ["python", "flower-start.py"]
     networks:
       - juscash_network
 
 volumes:
   postgres_data:
-    driver: local
-  redis_data:
     driver: local
 
 networks:
