@@ -101,99 +101,136 @@ jobs:
       run: |
         ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-    - name: 🚀 Deploy Simplificado para VPS
+    - name: 🚀 Deploy com Tag de Imagem
       env:
         VPS_HOST: ${{ secrets.VPS_HOST }}
         VPS_USER: ${{ secrets.VPS_USER }}
-        DEPLOY_BRANCH: ${{ github.ref_name }}
-        COMMIT_SHA: ${{ github.sha }}
-        SHORT_SHA: ${{ github.sha }}
+        IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "🚀 Iniciando deploy simplificado..."
-        echo "📋 Branch: $DEPLOY_BRANCH"
-        echo "🔖 Commit: ${SHORT_SHA:0:7}"
+        echo "🚀 Deploy com tag de imagem: ${IMAGE_TAG:0:7}"
         
-        ssh $VPS_USER@$VPS_HOST << 'EOF'
+        ssh $VPS_USER@$VPS_HOST << EOF
           set -e
           
-          echo "🔄 Deploy iniciado em $(date)"
+          echo "🔄 Deploy iniciado: \$(date)"
+          echo "📋 Tag da imagem: ${IMAGE_TAG:0:7}"
+          
           cd /var/www/juscash
           
           # 1. Backup rápido
-          echo "💾 Backup rápido..."
-          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou"
+          echo "💾 Backup..."
+          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou"
           
-          # 2. Atualizar código (FORÇADO)
+          # 2. Atualizar código
           echo "📥 Atualizando código..."
           git fetch origin
-          git reset --hard origin/${{ env.DEPLOY_BRANCH }}
+          git reset --hard origin/master
           
-          # 3. Criar arquivo VERSION
-          COMMIT_SHORT="${{ env.SHORT_SHA }}"
-          echo "${COMMIT_SHORT:0:7}" > VERSION
-          echo "✅ Versão: $(cat VERSION)"
+          # 3. Criar arquivo VERSION com hash do commit
+          echo "${IMAGE_TAG:0:7}" > VERSION
+          echo "✅ Versão criada: \$(cat VERSION)"
           
-          # 4. ESTRATÉGIA SIMPLES: Parar tudo e rebuildar
-          echo "⏹️ Parando todos os containers..."
-          docker-compose down --remove-orphans || true
+          # 4. Parar containers completamente
+          echo "⏹️ Parando containers..."
+          docker-compose down --remove-orphans --volumes || true
           
-          # 5. Limpar imagens antigas
-          echo "🧹 Limpando imagens antigas..."
+          # 5. Remover imagens antigas da aplicação (forçar rebuild)
+          echo "🧹 Removendo imagens antigas..."
+          docker rmi juscash_web:latest juscash_worker:latest juscash_flower:latest 2>/dev/null || true
           docker image prune -f || true
           
-          # 6. Build forçado sem cache
-          echo "🔨 Build forçado sem cache..."
+          # 6. Atualizar docker-compose.yml com nova tag
+          echo "🏷️ Atualizando tags no docker-compose..."
+          sed -i "s|image: juscash_web:.*|image: juscash_web:${IMAGE_TAG:0:7}|g" docker-compose.yml
+          sed -i "s|image: juscash_worker:.*|image: juscash_worker:${IMAGE_TAG:0:7}|g" docker-compose.yml
+          sed -i "s|image: juscash_flower:.*|image: juscash_flower:${IMAGE_TAG:0:7}|g" docker-compose.yml
+          
+          # 7. Build com nova tag
+          echo "🔨 Build com nova tag..."
           docker-compose build --no-cache --pull
           
-          # 7. Iniciar containers
+          # 8. Tagear imagens com hash do commit
+          docker tag juscash_web:latest juscash_web:${IMAGE_TAG:0:7}
+          docker tag juscash_worker:latest juscash_worker:${IMAGE_TAG:0:7}
+          docker tag juscash_flower:latest juscash_flower:${IMAGE_TAG:0:7}
+          
+          # 9. Iniciar containers
           echo "🚀 Iniciando containers..."
           docker-compose up -d
           
-          # 8. Aguardar inicialização
-          echo "⏳ Aguardando 30 segundos..."
-          sleep 30
+          # 10. Aguardar inicialização
+          echo "⏳ Aguardando 45 segundos..."
+          sleep 45
           
-          # 9. Verificar status
+          # 11. Verificar status
           echo "📊 Status dos containers:"
           docker-compose ps
           
-          # 10. Teste rápido da API
+          # 12. Teste da API com timeout maior
           echo "🏥 Testando API..."
-          for i in {1..10}; do
-            if curl -f -s http://localhost:5000/api/simple/ping > /tmp/health.json; then
-              API_VERSION=$(cat /tmp/health.json | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
-              echo "✅ API respondendo! Versão: $API_VERSION"
+          SUCCESS=false
+          for i in {1..15}; do
+            if curl -f -s --max-time 15 http://localhost:5000/api/simple/ping > /tmp/health.json; then
+              API_VERSION=\$(cat /tmp/health.json | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+              echo "✅ API respondendo! Versão: \$API_VERSION"
+              echo "📋 Resposta completa:"
+              cat /tmp/health.json | python3 -m json.tool 2>/dev/null || cat /tmp/health.json
               
-              # Mostrar resposta completa
-              echo "📋 Resposta da API:"
-              cat /tmp/health.json
+              # Verificar se a versão foi atualizada
+              if [ "\$API_VERSION" = "${IMAGE_TAG:0:7}" ]; then
+                echo "🎉 VERSÃO ATUALIZADA CORRETAMENTE!"
+                SUCCESS=true
+                break
+              else
+                echo "⚠️ Versão ainda não atualizada (esperado: ${IMAGE_TAG:0:7}, atual: \$API_VERSION)"
+              fi
               break
             else
-              echo "⚠️ Tentativa $i/10 falhou, aguardando..."
-              sleep 5
+              echo "⚠️ Tentativa \$i/15 falhou..."
+              if [ \$i -eq 5 ] || [ \$i -eq 10 ]; then
+                echo "📋 Logs do container web:"
+                docker-compose logs web --tail=10
+              fi
+              sleep 3
             fi
           done
           
-          # 11. Executar migrações
+          # 13. Executar migrações
           echo "🗄️ Aplicando migrações..."
           docker-compose exec -T web flask db upgrade || echo "⚠️ Erro nas migrações"
           
-          echo "✅ Deploy concluído!"
+          # 14. Restaurar docker-compose.yml original
+          echo "🔄 Restaurando docker-compose.yml..."
+          git checkout -- docker-compose.yml
+          
+          if [ "\$SUCCESS" = true ]; then
+            echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
+          else
+            echo "⚠️ Deploy executado, mas versão pode não ter atualizado"
+          fi
+          
           echo "🌐 Acesse: https://cron.juscash.app/api/simple/ping"
         EOF
 
-    - name: 🔔 Verificação Externa
+    - name: 🔔 Verificação Externa Final
       run: |
-        echo "🌐 Aguardando propagação..."
-        sleep 15
+        echo "🌐 Aguardando propagação externa..."
+        sleep 20
         
-        echo "📡 Testando acesso externo..."
-        for i in {1..5}; do
-          if curl -f -s --max-time 10 https://cron.juscash.app/api/simple/ping; then
-            echo "✅ API acessível externamente!"
+        echo "📡 Verificando versão externa..."
+        for i in {1..8}; do
+          if RESPONSE=\$(curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping 2>/dev/null); then
+            echo "✅ API externa acessível!"
+            echo "📋 Resposta: \$RESPONSE"
+            
+            # Extrair versão da resposta
+            VERSION=\$(echo "\$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+            echo "🔖 Versão externa: \$VERSION"
+            echo "🔖 Versão esperada: ${{ github.sha }}".substring(0,7)
+            
             break
           else
-            echo "⚠️ Tentativa $i/5, aguardando..."
+            echo "⚠️ Tentativa \$i/8 falhou, aguardando..."
             sleep 10
           fi
         done
@@ -203,4 +240,5 @@ jobs:
       run: |
         echo "❌ Deploy falhou!"
         echo "📋 Commit: ${{ github.sha }}"
-        echo "🌿 Branch: ${{ github.ref_name }}" 
+        echo "🌿 Branch: ${{ github.ref_name }}"
+        echo "🔍 Verifique os logs acima para mais detalhes" 
