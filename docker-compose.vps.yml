@@ -1,0 +1,153 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: juscash_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: juscash_db
+      POSTGRES_USER: juscash_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - /opt/juscash/postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - juscash-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U juscash_user -d juscash_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache/Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: juscash_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - /opt/juscash/redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - juscash-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Flask Web Application
+  web:
+    build: 
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: juscash_web
+    restart: unless-stopped
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql://juscash_user:${DB_PASSWORD}@postgres:5432/juscash_db
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
+    ports:
+      - "5000:5000"
+    volumes:
+      - /opt/juscash/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - juscash-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker
+  worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: juscash_worker
+    restart: unless-stopped
+    command: celery -A celery_worker.celery worker --loglevel=info --concurrency=2
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql://juscash_user:${DB_PASSWORD}@postgres:5432/juscash_db
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
+    volumes:
+      - /opt/juscash/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - juscash-network
+
+  # Celery Beat (Cron Jobs)
+  beat:
+    build: 
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: juscash_beat
+    restart: unless-stopped
+    command: celery -A celery_worker.celery beat --loglevel=info --scheduler=celery.beat:PersistentScheduler
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql://juscash_user:${DB_PASSWORD}@postgres:5432/juscash_db
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
+    volumes:
+      - /opt/juscash/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - juscash-network
+
+  # Flower (Celery Monitoring)
+  flower:
+    build: 
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: juscash_flower
+    restart: unless-stopped
+    command: celery -A celery_worker.celery flower --port=5555
+    environment:
+      FLASK_ENV: production
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - juscash-network
+
+networks:
+  juscash-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local 

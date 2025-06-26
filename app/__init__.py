@@ -1,106 +1,132 @@
+import os
+import logging
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_restx import Api
 from celery import Celery
+from flasgger import Swagger
 from config import config
-import os
+from flask_cors import CORS
 
 db = SQLAlchemy()
 migrate = Migrate()
 
-def create_app(config_name='default'):
+def create_app(config_name=None):
+    """Factory para criar aplicação Flask"""
+    
     app = Flask(__name__)
-    app.config.from_object(config[config_name])
     
-    db.init_app(app)
-    migrate.init_app(app, db)
+    # Configuração baseada no ambiente
+    if config_name is None:
+        config_name = os.environ.get('FLASK_ENV', 'production')
     
-    # Importar modelos para que o Flask-Migrate os reconheça
-    from app.infrastructure.database.models import PublicacaoModel
+    # Carregar configuração específica para VPS
+    if config_name == 'production':
+        from config import ProductionConfig
+        app.config.from_object(ProductionConfig)
+    elif config_name == 'development':
+        from config import DevelopmentConfig
+        app.config.from_object(DevelopmentConfig)
+    else:
+        from config import Config
+        app.config.from_object(Config)
     
-    api = Api(
-        app,
-        version='1.0',
-        title='JusCash API',
-        description='API para web scraping do Diário da Justiça Eletrônico (DJE)',
-        doc='/docs/',
-        prefix='/api'
-    )
+    # Configurar logging para VPS
+    if not app.debug:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s %(levelname)s %(name)s %(message)s',
+            handlers=[
+                logging.FileHandler('/app/logs/juscash.log'),
+                logging.StreamHandler()
+            ]
+        )
     
-    from app.presentation.routes import register_namespaces
-    register_namespaces(api)
+    # Inicializar extensões
+    CORS(app, origins=app.config.get('CORS_ORIGINS', ['*']))
+    migrate.init_app(app, db=None)  # DB será inicializado depois
+    
+    # Configurar Swagger
+    swagger_config = {
+        "headers": [],
+        "specs": [
+            {
+                "endpoint": 'apispec',
+                "route": '/api/swagger.json',
+                "rule_filter": lambda rule: True,
+                "model_filter": lambda tag: True,
+            }
+        ],
+        "static_url_path": "/swaggerui",
+        "swagger_ui": True,
+        "specs_route": "/docs/"
+    }
+    Swagger(app, config=swagger_config, template=app.config.get('SWAGGER', {}))
+    
+    # Registrar blueprints
+    from app.presentation.routes import main_bp
+    from app.presentation.cron_routes import cron_bp
+    
+    app.register_blueprint(main_bp, url_prefix='/api')
+    app.register_blueprint(cron_bp, url_prefix='/cron')
+    
+    # Health check para VPS
+    @app.route('/health')
+    @app.route('/api/health')
+    def health_check():
+        return {
+            'status': 'healthy',
+            'server': 'VPS Hostinger',
+            'location': 'São Paulo, Brasil',
+            'environment': app.config.get('FLASK_ENV', 'production')
+        }
+    
+    # Root endpoint
+    @app.route('/')
+    def root():
+        return {
+            'message': 'JusCash API - VPS Hostinger',
+            'status': 'running',
+            'docs': '/docs/',
+            'health': '/health'
+        }
     
     return app
 
 def make_celery(app):
-    # CORREÇÃO ROBUSTA: Múltiplas tentativas para obter REDIS_URL
-    redis_url = None
+    """Factory para criar instância do Celery"""
     
-    # Tentativa 1: app.config
-    if app.config.get('REDIS_URL'):
-        redis_url = app.config['REDIS_URL']
-        print(f"DEBUG: Redis URL obtida do app.config: {redis_url[:20]}***")
-    
-    # Tentativa 2: os.environ diretamente
-    if not redis_url and os.environ.get('REDIS_URL'):
-        redis_url = os.environ['REDIS_URL']
-        print(f"DEBUG: Redis URL obtida do os.environ: {redis_url[:20]}***")
-    
-    # Tentativa 3: Verificar variáveis específicas do Railway
-    if not redis_url:
-        railway_vars = ['REDIS_URL', 'REDISURL', 'REDIS_PRIVATE_URL', 'REDIS_PUBLIC_URL']
-        for var in railway_vars:
-            if os.environ.get(var):
-                redis_url = os.environ[var]
-                print(f"DEBUG: Redis URL obtida de {var}: {redis_url[:20]}***")
-                break
-    
-    # Fallback final
-    if not redis_url:
-        redis_url = 'redis://localhost:6379/0'
-        print("DEBUG: Usando Redis URL fallback: redis://localhost:6379/0")
-    
-    print(f"DEBUG: Criando Celery com Redis URL: {redis_url[:30]}***")
-    
+    # Configuração do Celery para VPS
     celery = Celery(
         app.import_name,
-        backend=redis_url,
-        broker=redis_url
+        backend=app.config.get('CELERY_RESULT_BACKEND'),
+        broker=app.config.get('CELERY_BROKER_URL'),
+        include=['app.tasks.scraping_tasks', 'app.tasks.maintenance_tasks']
     )
     
-    # CONFIGURAÇÃO FORÇADA - Garantir que as URLs sejam definidas
-    celery.conf.update({
-        'broker_url': redis_url,
-        'result_backend': redis_url,
-        'task_serializer': 'json',
-        'accept_content': ['json'],
-        'result_serializer': 'json',
-        'timezone': 'America/Sao_Paulo',
-        'enable_utc': True,
-        'broker_connection_retry_on_startup': True,
-        'worker_disable_rate_limits': True,
-        'task_acks_late': True,
-        'worker_prefetch_multiplier': 1,
-        'broker_transport_options': {
-            'retry_on_timeout': True,
-            'socket_connect_timeout': 30,
-            'socket_timeout': 30,
-        },
-        'result_backend_transport_options': {
-            'retry_on_timeout': True,
-            'socket_connect_timeout': 30,
-            'socket_timeout': 30,
-        }
-    })
+    # Configurações otimizadas para VPS
+    celery.conf.update(
+        task_serializer='json',
+        accept_content=['json'],
+        result_serializer='json',
+        timezone='America/Sao_Paulo',
+        enable_utc=True,
+        task_track_started=True,
+        task_time_limit=30 * 60,  # 30 minutos
+        task_soft_time_limit=25 * 60,  # 25 minutos
+        worker_prefetch_multiplier=1,
+        worker_max_tasks_per_child=1000,
+        result_expires=3600,  # 1 hora
+        broker_connection_retry_on_startup=True,
+        broker_connection_retry=True,
+        broker_connection_max_retries=10,
+        task_acks_late=True,
+        worker_disable_rate_limits=True,
+        task_reject_on_worker_lost=True
+    )
     
-    # VERIFICAÇÃO FINAL - Log das configurações
-    print(f"DEBUG: Celery configurado com:")
-    print(f"  - broker_url: {str(celery.conf.broker_url)[:30]}***")
-    print(f"  - result_backend: {str(celery.conf.result_backend)[:30]}***")
-    print(f"  - task_serializer: {celery.conf.task_serializer}")
-    print(f"  - timezone: {celery.conf.timezone}")
-    
+    # Context task para executar em contexto Flask
     class ContextTask(celery.Task):
         def __call__(self, *args, **kwargs):
             with app.app_context():
