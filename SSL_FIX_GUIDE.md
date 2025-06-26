@@ -1,171 +1,189 @@
-# 🔐 Guia de Correção SSL para Subdomínios
+# Guia de Correção SSL - JusCash API
 
-## ❌ **Problema Identificado**
+## Problema Identificado
 
-O erro `net::ERR_CERT_COMMON_NAME_INVALID` ocorre porque:
-1. Os certificados SSL não foram gerados para os subdomínios específicos
-2. As configurações nginx estão tentando usar certificados que não existem
-3. É necessário gerar certificados individuais para cada subdomínio
+Os subdomínios estão apresentando erro SSL: `net::ERR_CERT_COMMON_NAME_INVALID`
 
-## 🚀 **Solução Rápida**
+## Subdomínios Afetados
 
-### Na VPS, execute os seguintes comandos:
+- `portainer.juscash.app` - Interface do Portainer (Docker)
+- `flower.juscash.app` - Interface do Flower (Celery)
+- `cadvisor.juscash.app` - Interface do cAdvisor (Monitoramento)
+- `cron.juscash.app` - API de Cron Jobs
+- `www.juscash.app` - Site principal
+
+## Configuração DNS Atual
+
+Todos os subdomínios estão configurados como CNAME apontando para `juscash.app`:
+```
+CNAME	www	0	juscash.app	300
+CNAME	cadvisor	0	juscash.app	14400
+CNAME	flower	0	juscash.app	14400
+CNAME	portainer	0	juscash.app	14400
+CNAME	cron	0	juscash.app	14400
+```
+
+## Solução Rápida
+
+### 1. Executar Diagnóstico
 
 ```bash
-# 1. Conectar na VPS
-ssh root@77.37.68.178
+sudo ./scripts/diagnose-ssl.sh
+```
 
-# 2. Ir para o diretório do projeto
-cd /root/juscash-api
+### 2. Corrigir Certificados SSL
 
-# 3. Fazer pull das correções
-git pull origin master
-
-# 4. Executar script de correção SSL
+```bash
 sudo ./scripts/fix-ssl-subdomains.sh
 ```
 
-## 🔧 **O que o script faz:**
+### 3. Verificar Resultado
 
-### Passo 1: HTTP Temporário
-- ✅ Remove configurações SSL problemáticas
-- ✅ Configura HTTP simples para cada subdomínio
-- ✅ Prepara validação Let's Encrypt
+Após a execução, teste os subdomínios:
+- https://portainer.juscash.app
+- https://flower.juscash.app
+- https://cadvisor.juscash.app
+- https://cron.juscash.app
 
-### Passo 2: Certificados SSL
-- 📜 Gera certificado individual para `portainer.juscash.app`
-- 📜 Gera certificado individual para `cadvisor.juscash.app`  
-- 📜 Gera certificado individual para `flower.juscash.app`
+## Como o Script Funciona
 
-### Passo 3: HTTPS Final
-- 🔒 Ativa configurações HTTPS com certificados corretos
-- ✅ Testa e valida configuração final
+### 1. Backup dos Certificados Existentes
+- Cria backup em `/etc/letsencrypt/backup-YYYYMMDD/`
 
-## 📋 **Configurações DNS Necessárias**
+### 2. Para o Nginx Temporariamente
+- Necessário para usar método `--standalone` do certbot
 
-**IMPORTANTE**: Antes de executar, verifique se estes registros DNS estão configurados:
+### 3. Remove Certificados Antigos
+- Limpa certificados corrompidos ou inválidos
 
+### 4. Gera Novos Certificados
+- Usa Let's Encrypt para cada subdomínio individualmente
+- Método `--standalone` (mais confiável)
+
+### 5. Verifica e Reinicia Nginx
+- Testa configuração antes de ativar
+- Reinicia serviços
+
+## Configuração Nginx
+
+### Arquivos de Configuração
 ```
-portainer.juscash.app    A    77.37.68.178
-cadvisor.juscash.app     A    77.37.68.178  
-flower.juscash.app       A    77.37.68.178
+nginx/
+├── portainer.juscash.app.conf  # Portainer (porta 9000)
+├── flower.juscash.app.conf     # Flower (porta 5555)
+├── cadvisor.juscash.app.conf   # cAdvisor (porta 8080)
+└── cron.juscash.app.conf       # API Cron (porta 5000/api/cron)
 ```
 
-## 🔍 **Verificação Manual**
+### Estrutura Padrão de Cada Configuração
+```nginx
+server {
+    listen 80;
+    server_name subdomain.juscash.app;
+    return 301 https://$server_name$request_uri;
+}
 
-### Teste se os subdomínios resolvem:
+server {
+    listen 443 ssl http2;
+    server_name subdomain.juscash.app;
+    
+    ssl_certificate /etc/letsencrypt/live/subdomain.juscash.app/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/subdomain.juscash.app/privkey.pem;
+    
+    # Headers de segurança e proxy para serviço local
+}
+```
+
+## Troubleshooting
+
+### Se o Script Falhar
+
+1. **Verifique DNS**:
 ```bash
-# Testar resolução DNS
 nslookup portainer.juscash.app
-nslookup cadvisor.juscash.app
 nslookup flower.juscash.app
-
-# Testar conectividade HTTP (temporário)
-curl -I http://portainer.juscash.app
-curl -I http://cadvisor.juscash.app
-curl -I http://flower.juscash.app
+nslookup cadvisor.juscash.app
+nslookup cron.juscash.app
 ```
 
-### Após executar o script, testar HTTPS:
+2. **Verifique Firewall**:
 ```bash
-# Testar HTTPS
-curl -I https://portainer.juscash.app
-curl -I https://cadvisor.juscash.app
-curl -I https://flower.juscash.app
-
-# Verificar certificados
-sudo certbot certificates
+sudo ufw status
+sudo iptables -L
 ```
 
-## 🚨 **Se der erro durante execução:**
-
-### Erro de DNS:
+3. **Verifique Logs**:
 ```bash
-# Verificar se DNS está propagado
-dig portainer.juscash.app
-dig cadvisor.juscash.app
-dig flower.juscash.app
-```
-
-### Erro de nginx:
-```bash
-# Verificar configuração
-sudo nginx -t
-
-# Ver logs de erro
 sudo tail -f /var/log/nginx/error.log
-```
-
-### Erro de certificado:
-```bash
-# Verificar logs do certbot
 sudo tail -f /var/log/letsencrypt/letsencrypt.log
-
-# Listar certificados existentes
-sudo certbot certificates
-
-# Remover certificados problemáticos se necessário
-sudo certbot delete --cert-name portainer.juscash.app
 ```
 
-## ⏰ **Timeline Esperado**
+### Certificado Wildcard (Alternativo)
 
-1. **0-5 min**: Configuração HTTP e validação DNS
-2. **5-10 min**: Geração de certificados SSL
-3. **10-15 min**: Ativação HTTPS
-4. **Total**: ~15 minutos
-
-## ✅ **Resultado Esperado**
-
-Após a execução bem-sucedida:
-
-- ✅ `https://portainer.juscash.app` - Interface Docker
-- ✅ `https://cadvisor.juscash.app` - Métricas de containers  
-- ✅ `https://flower.juscash.app` - Monitor Celery
-- ✅ Certificados SSL válidos para todos
-- ✅ Redirecionamento HTTP → HTTPS automático
-
-## 🛠️ **Troubleshooting Comum**
-
-### Se um subdomínio específico falhar:
-
+Para um certificado wildcard `*.juscash.app`:
 ```bash
-# Verificar se o container está rodando
-docker ps | grep portainer
-docker ps | grep cadvisor
-docker ps | grep flower
-
-# Verificar se as portas estão abertas
-netstat -tlnp | grep :9000   # Portainer
-netstat -tlnp | grep :8080   # cAdvisor  
-netstat -tlnp | grep :5555   # Flower
-
-# Restart containers se necessário
-docker-compose -f docker-compose.prod.yml restart portainer
-docker-compose -f docker-compose.prod.yml restart cadvisor
-docker-compose -f docker-compose.prod.yml restart flower
+sudo certbot certonly --manual --preferred-challenges dns -d "*.juscash.app" -d "juscash.app"
 ```
 
-### Se certificados expirarem:
+**Nota**: Requer configuração manual de registro TXT no DNS.
 
+## Renovação Automática
+
+### Habilitar Timer do Certbot
 ```bash
-# Renovar todos os certificados
-sudo certbot renew
+sudo systemctl enable certbot.timer
+sudo systemctl start certbot.timer
+sudo systemctl status certbot.timer
+```
 
-# Testar renovação
+### Testar Renovação
+```bash
 sudo certbot renew --dry-run
 ```
 
-## 📞 **Suporte**
+## Comandos Úteis
 
-Se ainda houver problemas após seguir este guia, execute:
-
+### Verificar Certificados
 ```bash
-# Gerar relatório de diagnóstico
-sudo nginx -t
-sudo certbot certificates  
-curl -I https://portainer.juscash.app
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+sudo certbot certificates
 ```
 
-E me envie a saída destes comandos para análise!
+### Testar SSL de um Subdomínio
+```bash
+openssl s_client -connect portainer.juscash.app:443 -servername portainer.juscash.app
+```
+
+### Verificar Expiração
+```bash
+openssl x509 -enddate -noout -in /etc/letsencrypt/live/portainer.juscash.app/fullchain.pem
+```
+
+### Recarregar Nginx
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+## Monitoramento
+
+### Status dos Serviços
+```bash
+sudo systemctl status nginx
+sudo systemctl status certbot.timer
+```
+
+### Logs em Tempo Real
+```bash
+sudo tail -f /var/log/nginx/portainer.juscash.app.access.log
+sudo tail -f /var/log/nginx/flower.juscash.app.error.log
+```
+
+## Conclusão
+
+Com essa configuração:
+- ✅ Cada subdomínio terá seu próprio certificado SSL válido
+- ✅ Renovação automática configurada
+- ✅ Redirecionamento HTTP → HTTPS
+- ✅ Headers de segurança aplicados
+- ✅ Logs separados por subdomínio
+
+O erro `net::ERR_CERT_COMMON_NAME_INVALID` será resolvido após a execução do script de correção.

@@ -1,200 +1,138 @@
 #!/bin/bash
 
-echo "🔍 Diagnóstico SSL - JusCash Subdomínios"
-echo "========================================"
+echo "=== DIAGNÓSTICO SSL SUBDOMÍNIOS ==="
+echo "Data: $(date)"
+echo
 
-# Verificar se está rodando como root
-if [ "$EUID" -ne 0 ]; then
-    echo "❌ Este script deve ser executado como root"
-    echo "Use: sudo ./scripts/diagnose-ssl.sh"
-    exit 1
-fi
+# Lista de subdomínios
+SUBDOMAINS=("www.juscash.app" "portainer.juscash.app" "flower.juscash.app" "cadvisor.juscash.app" "cron.juscash.app")
 
-echo ""
-echo "1️⃣ VERIFICANDO DNS E CONECTIVIDADE"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-SUBDOMAINS=("portainer.juscash.app" "cadvisor.juscash.app" "flower.juscash.app")
+echo "🔍 Verificando certificados locais..."
+echo "─────────────────────────────────────────"
 
 for subdomain in "${SUBDOMAINS[@]}"; do
-    echo "🌐 Testando $subdomain..."
-    
-    # DNS Resolution
-    if nslookup $subdomain > /dev/null 2>&1; then
-        ip=$(nslookup $subdomain | grep "Address:" | tail -1 | awk '{print $2}')
-        echo "  ✅ DNS: $ip"
-    else
-        echo "  ❌ DNS: Falha na resolução"
-        continue
-    fi
-    
-    # HTTP Test
-    if curl -s -I --connect-timeout 5 http://$subdomain > /dev/null 2>&1; then
-        echo "  ✅ HTTP: Conectando"
-    else
-        echo "  ❌ HTTP: Não conecta"
-    fi
-    
-    # HTTPS Test
-    if curl -s -I --connect-timeout 5 https://$subdomain > /dev/null 2>&1; then
-        echo "  ✅ HTTPS: Conectando"
-    else
-        echo "  ❌ HTTPS: Falha SSL/Conexão"
-    fi
-    
-    echo ""
-done
-
-echo ""
-echo "2️⃣ VERIFICANDO CERTIFICADOS SSL"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Listar certificados existentes
-echo "📜 Certificados Let's Encrypt instalados:"
-certbot certificates 2>/dev/null | grep -E "(Certificate Name|Domains|Expiry Date)" || echo "  ❌ Nenhum certificado encontrado"
-
-echo ""
-echo "📁 Verificando arquivos de certificados:"
-for subdomain in "${SUBDOMAINS[@]}"; do
-    cert_path="/etc/letsencrypt/live/$subdomain"
-    if [ -d "$cert_path" ]; then
-        echo "  ✅ $subdomain: Diretório existe"
-        if [ -f "$cert_path/fullchain.pem" ]; then
-            echo "    ✅ fullchain.pem existe"
+    echo -n "$subdomain: "
+    if [ -f "/etc/letsencrypt/live/$subdomain/fullchain.pem" ]; then
+        expiry=$(openssl x509 -enddate -noout -in /etc/letsencrypt/live/$subdomain/fullchain.pem 2>/dev/null | cut -d= -f2)
+        if [ $? -eq 0 ]; then
+            echo "✅ Válido até $expiry"
         else
-            echo "    ❌ fullchain.pem não encontrado"
-        fi
-        if [ -f "$cert_path/privkey.pem" ]; then
-            echo "    ✅ privkey.pem existe"
-        else
-            echo "    ❌ privkey.pem não encontrado"
+            echo "❌ Erro ao ler certificado"
         fi
     else
-        echo "  ❌ $subdomain: Diretório não existe"
+        echo "❌ Certificado não encontrado"
     fi
 done
 
-echo ""
-echo "3️⃣ VERIFICANDO CONFIGURAÇÃO NGINX"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo
+echo "🌐 Testando conectividade HTTPS..."
+echo "─────────────────────────────────────────"
 
-# Verificar sintaxe nginx
-echo "🔧 Testando sintaxe nginx:"
-if nginx -t 2>&1; then
-    echo "  ✅ Sintaxe nginx válida"
+for subdomain in "${SUBDOMAINS[@]}"; do
+    echo -n "Testing $subdomain: "
+    
+    # Testar conectividade SSL
+    ssl_test=$(timeout 10 openssl s_client -connect $subdomain:443 -servername $subdomain </dev/null 2>/dev/null)
+    
+    if echo "$ssl_test" | grep -q "Verify return code: 0"; then
+        echo "✅ SSL válido"
+    elif echo "$ssl_test" | grep -q "certificate verify failed"; then
+        echo "❌ Certificado inválido"
+    elif echo "$ssl_test" | grep -q "connect: Connection refused"; then
+        echo "❌ Conexão recusada"
+    else
+        echo "❌ Erro de conectividade"
+    fi
+done
+
+echo
+echo "📋 Status dos serviços relacionados..."
+echo "─────────────────────────────────────────"
+
+# Verificar nginx
+if systemctl is-active --quiet nginx; then
+    echo "✅ Nginx: Ativo"
 else
-    echo "  ❌ Erro na sintaxe nginx"
+    echo "❌ Nginx: Inativo"
 fi
 
-echo ""
-echo "📁 Arquivos de configuração ativos:"
-ls -la /etc/nginx/sites-enabled/ | grep juscash || echo "  ❌ Nenhuma configuração juscash encontrada"
+# Verificar certbot timer
+if systemctl is-enabled --quiet certbot.timer; then
+    echo "✅ Certbot timer: Habilitado"
+else
+    echo "❌ Certbot timer: Desabilitado"
+fi
 
-echo ""
-echo "🔍 Verificando configurações por subdomínio:"
+# Verificar portas
+echo
+echo "🔌 Verificando portas..."
+echo "─────────────────────────────────────────"
+
+if netstat -ln | grep -q ":80 "; then
+    echo "✅ Porta 80: Aberta"
+else
+    echo "❌ Porta 80: Fechada"
+fi
+
+if netstat -ln | grep -q ":443 "; then
+    echo "✅ Porta 443: Aberta"
+else
+    echo "❌ Porta 443: Fechada"
+fi
+
+echo
+echo "📁 Configurações nginx dos subdomínios..."
+echo "─────────────────────────────────────────"
+
 for subdomain in "${SUBDOMAINS[@]}"; do
-    config_file="/etc/nginx/sites-enabled/${subdomain}.conf"
-    if [ -f "$config_file" ]; then
-        echo "  ✅ $subdomain: Configuração existe"
-        
-        # Verificar se tem SSL configurado
-        if grep -q "ssl_certificate" "$config_file"; then
-            echo "    ✅ SSL configurado"
-            
-            # Verificar se os arquivos SSL existem
-            cert_path=$(grep "ssl_certificate " "$config_file" | head -1 | awk '{print $2}' | sed 's/;//')
-            key_path=$(grep "ssl_certificate_key" "$config_file" | head -1 | awk '{print $2}' | sed 's/;//')
-            
-            if [ -f "$cert_path" ]; then
-                echo "    ✅ Certificado encontrado: $cert_path"
-            else
-                echo "    ❌ Certificado não encontrado: $cert_path"
-            fi
-            
-            if [ -f "$key_path" ]; then
-                echo "    ✅ Chave privada encontrada: $key_path"
-            else
-                echo "    ❌ Chave privada não encontrada: $key_path"
-            fi
+    config_file=""
+    case $subdomain in
+        "www.juscash.app") config_file="juscash.app.conf" ;;
+        "portainer.juscash.app") config_file="portainer.juscash.app.conf" ;;
+        "flower.juscash.app") config_file="flower.juscash.app.conf" ;;
+        "cadvisor.juscash.app") config_file="cadvisor.juscash.app.conf" ;;
+        "cron.juscash.app") config_file="cron.juscash.app.conf" ;;
+    esac
+    
+    echo -n "$subdomain: "
+    if [ -f "/etc/nginx/sites-available/$config_file" ]; then
+        if [ -L "/etc/nginx/sites-enabled/$config_file" ]; then
+            echo "✅ Configurado e ativo"
         else
-            echo "    ⚠️  SSL não configurado (apenas HTTP)"
+            echo "⚠️  Configurado mas inativo"
         fi
     else
-        echo "  ❌ $subdomain: Configuração não encontrada"
+        echo "❌ Configuração não encontrada"
     fi
 done
 
-echo ""
-echo "4️⃣ VERIFICANDO CONTAINERS DOCKER"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo
+echo "🔧 Testando configuração nginx..."
+echo "─────────────────────────────────────────"
 
-echo "🐳 Status dos containers:"
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(portainer|cadvisor|flower)" || echo "  ❌ Containers não encontrados"
-
-echo ""
-echo "🔌 Verificando portas locais:"
-declare -A PORTS=(
-    ["portainer"]="9000"
-    ["cadvisor"]="8080"
-    ["flower"]="5555"
-)
-
-for service in "${!PORTS[@]}"; do
-    port=${PORTS[$service]}
-    if netstat -tlnp | grep ":$port " > /dev/null 2>&1; then
-        echo "  ✅ Porta $port ($service): Ativa"
-    else
-        echo "  ❌ Porta $port ($service): Não encontrada"
-    fi
-done
-
-echo ""
-echo "5️⃣ TESTE DE CONECTIVIDADE DETALHADO"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-for subdomain in "${SUBDOMAINS[@]}"; do
-    echo "🔍 Testando $subdomain detalhadamente:"
-    
-    # Teste HTTP detalhado
-    echo "  📡 HTTP Response:"
-    curl -s -I --connect-timeout 5 http://$subdomain 2>&1 | head -3 | sed 's/^/    /'
-    
-    # Teste HTTPS detalhado
-    echo "  🔒 HTTPS Response:"
-    curl -s -I --connect-timeout 5 https://$subdomain 2>&1 | head -3 | sed 's/^/    /'
-    
-    # Teste SSL Certificate
-    echo "  📜 SSL Certificate Info:"
-    echo | openssl s_client -servername $subdomain -connect $subdomain:443 2>/dev/null | openssl x509 -noout -subject -dates 2>/dev/null | sed 's/^/    /' || echo "    ❌ Falha ao obter informações do certificado"
-    
-    echo ""
-done
-
-echo ""
-echo "6️⃣ LOGS RECENTES"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-echo "📋 Últimos erros nginx:"
-tail -20 /var/log/nginx/error.log | tail -10 | sed 's/^/  /'
-
-echo ""
-echo "📋 Últimos logs certbot:"
-if [ -f "/var/log/letsencrypt/letsencrypt.log" ]; then
-    tail -20 /var/log/letsencrypt/letsencrypt.log | tail -10 | sed 's/^/  /'
+if nginx -t 2>/dev/null; then
+    echo "✅ Configuração nginx válida"
 else
-    echo "  ⚠️  Log do certbot não encontrado"
+    echo "❌ Erro na configuração nginx:"
+    nginx -t
 fi
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🎯 DIAGNÓSTICO CONCLUÍDO"
-echo ""
-echo "📊 Para corrigir problemas identificados, use:"
-echo "   sudo ./scripts/fix-ssl-subdomains.sh"
-echo ""
-echo "🔧 Para reconfigurar nginx:"
-echo "   sudo systemctl reload nginx"
-echo ""
-echo "📜 Para renovar certificados:"
-echo "   sudo certbot renew"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo
+echo "📊 Últimos logs de erro nginx..."
+echo "─────────────────────────────────────────"
+if [ -f "/var/log/nginx/error.log" ]; then
+    tail -5 /var/log/nginx/error.log | grep -E "(ssl|certificate|https)" || echo "Nenhum erro SSL recente encontrado"
+else
+    echo "Log de erro não encontrado"
+fi
+
+echo
+echo "=== SOLUÇÕES RECOMENDADAS ==="
+echo
+echo "Se encontrou problemas, execute:"
+echo "1. Para recriar certificados: sudo ./scripts/fix-ssl-subdomains.sh"
+echo "2. Para verificar logs detalhados: sudo tail -f /var/log/nginx/error.log"
+echo "3. Para verificar certbot: sudo certbot certificates"
+echo "4. Para testar nginx: sudo nginx -t"
+echo
+echo "✅ Diagnóstico concluído!"

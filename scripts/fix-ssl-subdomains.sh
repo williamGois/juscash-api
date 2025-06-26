@@ -1,195 +1,123 @@
 #!/bin/bash
 
-echo "🔐 Corrigindo SSL para subdomínios JusCash"
-echo "=========================================="
+echo "=== CORREÇÃO DE SSL PARA SUBDOMÍNIOS ==="
+echo "Script para regenerar certificados SSL dos subdomínios"
+echo
 
 # Verificar se está rodando como root
 if [ "$EUID" -ne 0 ]; then
-    echo "❌ Este script deve ser executado como root"
-    echo "Use: sudo ./scripts/fix-ssl-subdomains.sh"
+    echo "❌ Este script deve ser executado como root (sudo)"
     exit 1
 fi
 
-# Lista de subdomínios e suas portas
-declare -A SUBDOMAINS=(
-    ["portainer.juscash.app"]="9000"
-    ["cadvisor.juscash.app"]="8080"
-    ["flower.juscash.app"]="5555"
-)
+# Parar nginx temporariamente
+echo "🔄 Parando nginx..."
+systemctl stop nginx
 
-echo "🔧 Passo 1: Configurando HTTP temporário para validação..."
+# Backup dos certificados existentes
+echo "📦 Fazendo backup dos certificados existentes..."
+mkdir -p /etc/letsencrypt/backup-$(date +%Y%m%d)
+cp -r /etc/letsencrypt/live /etc/letsencrypt/backup-$(date +%Y%m%d)/ 2>/dev/null || true
 
-# Remover configurações existentes
-rm -f /etc/nginx/sites-enabled/*juscash.app*.conf
+# Lista de subdomínios
+SUBDOMAINS=("portainer.juscash.app" "flower.juscash.app" "cadvisor.juscash.app" "cron.juscash.app")
 
-for subdomain in "${!SUBDOMAINS[@]}"; do
-    port=${SUBDOMAINS[$subdomain]}
+# Gerar certificados para cada subdomínio
+for subdomain in "${SUBDOMAINS[@]}"; do
+    echo
+    echo "🔐 Gerando certificado SSL para $subdomain..."
     
-    echo "📁 Configurando HTTP para $subdomain (porta $port)..."
+    # Remover certificado antigo se existir
+    certbot delete --cert-name $subdomain --non-interactive 2>/dev/null || true
     
-    cat > /etc/nginx/sites-available/${subdomain}-http.conf << EOF
-server {
-    listen 80;
-    server_name ${subdomain};
+    # Gerar novo certificado
+    certbot certonly \
+        --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email admin@juscash.app \
+        -d $subdomain \
+        --force-renewal
     
-    # Location para Let's Encrypt validation
-    location /.well-known/acme-challenge/ {
-        root /var/www/html;
-    }
-    
-    location / {
-        proxy_pass http://127.0.0.1:${port};
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # Headers específicos por serviço
-EOF
-
-    if [[ $subdomain == "portainer.juscash.app" ]]; then
-        cat >> /etc/nginx/sites-available/${subdomain}-http.conf << EOF
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass \$http_upgrade;
-        proxy_read_timeout 86400;
-EOF
-    elif [[ $subdomain == "flower.juscash.app" ]]; then
-        cat >> /etc/nginx/sites-available/${subdomain}-http.conf << EOF
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass \$http_upgrade;
-        proxy_buffering off;
-EOF
+    if [ $? -eq 0 ]; then
+        echo "✅ Certificado gerado com sucesso para $subdomain"
+    else
+        echo "❌ Erro ao gerar certificado para $subdomain"
     fi
-    
-    cat >> /etc/nginx/sites-available/${subdomain}-http.conf << EOF
-    }
-}
-EOF
-
-    ln -sf /etc/nginx/sites-available/${subdomain}-http.conf /etc/nginx/sites-enabled/
-    echo "✅ HTTP configurado para $subdomain"
 done
 
-# Criar diretório para validação
-mkdir -p /var/www/html/.well-known/acme-challenge
+# Gerar certificado wildcard (opcional, mais seguro)
+echo
+echo "🔐 Tentando gerar certificado wildcard para *.juscash.app..."
+certbot certonly \
+    --manual \
+    --preferred-challenges dns \
+    --non-interactive \
+    --agree-tos \
+    --email admin@juscash.app \
+    -d "*.juscash.app" \
+    -d "juscash.app" \
+    --manual-auth-hook /dev/null \
+    --manual-cleanup-hook /dev/null 2>/dev/null || echo "⚠️  Certificado wildcard não pôde ser gerado automaticamente"
+
+# Verificar certificados gerados
+echo
+echo "📋 Verificando certificados gerados:"
+for subdomain in "${SUBDOMAINS[@]}"; do
+    if [ -f "/etc/letsencrypt/live/$subdomain/fullchain.pem" ]; then
+        echo "✅ $subdomain: Certificado OK"
+        # Verificar validade
+        expiry=$(openssl x509 -enddate -noout -in /etc/letsencrypt/live/$subdomain/fullchain.pem | cut -d= -f2)
+        echo "   Expira em: $expiry"
+    else
+        echo "❌ $subdomain: Certificado AUSENTE"
+    fi
+done
 
 # Testar configuração nginx
-echo ""
-echo "🔍 Testando configuração nginx..."
-if nginx -t; then
-    echo "✅ Configuração nginx válida"
+echo
+echo "🔧 Testando configuração nginx..."
+nginx -t
+
+if [ $? -eq 0 ]; then
+    echo "✅ Configuração nginx OK"
+    echo "🚀 Iniciando nginx..."
+    systemctl start nginx
     systemctl reload nginx
-    echo "✅ Nginx recarregado"
 else
-    echo "❌ Erro na configuração nginx!"
-    exit 1
+    echo "❌ Erro na configuração nginx"
+    echo "🔄 Tentando iniciar nginx mesmo assim..."
+    systemctl start nginx
 fi
 
-echo ""
-echo "⏳ Aguardando 10 segundos para estabilizar..."
-sleep 10
+# Verificar status dos serviços
+echo
+echo "📊 Status dos serviços:"
+systemctl is-active nginx && echo "✅ Nginx: Ativo" || echo "❌ Nginx: Inativo"
 
-echo ""
-echo "🔐 Passo 2: Obtendo certificados SSL..."
-
-for subdomain in "${!SUBDOMAINS[@]}"; do
-    echo "📜 Obtendo certificado para $subdomain..."
-    
-    # Tentar obter certificado usando webroot
-    if certbot certonly --webroot -w /var/www/html -d $subdomain --non-interactive --agree-tos --email admin@juscash.app --force-renewal; then
-        echo "✅ Certificado obtido para $subdomain via webroot"
-    else
-        echo "⚠️  Webroot falhou, tentando método standalone..."
-        # Parar nginx temporariamente
-        systemctl stop nginx
-        
-        if certbot certonly --standalone -d $subdomain --non-interactive --agree-tos --email admin@juscash.app --force-renewal; then
-            echo "✅ Certificado obtido para $subdomain via standalone"
-        else
-            echo "❌ Falha ao obter certificado para $subdomain"
-            systemctl start nginx
-            continue
-        fi
-        
-        # Reiniciar nginx
-        systemctl start nginx
-    fi
+# Testar conectividade SSL
+echo
+echo "🔍 Testando conectividade SSL dos subdomínios:"
+for subdomain in "${SUBDOMAINS[@]}"; do
+    echo -n "Testing $subdomain: "
+    timeout 10 openssl s_client -connect $subdomain:443 -servername $subdomain </dev/null 2>/dev/null | grep -q "Verify return code: 0" && echo "✅ SSL OK" || echo "❌ SSL ERRO"
 done
 
-echo ""
-echo "🔧 Passo 3: Configurando HTTPS..."
-
-# Remover configurações HTTP temporárias
-rm -f /etc/nginx/sites-enabled/*-http.conf
-
-# Ativar configurações HTTPS
-for subdomain in "${!SUBDOMAINS[@]}"; do
-    if [[ -f "/etc/letsencrypt/live/$subdomain/fullchain.pem" ]]; then
-        echo "🔒 Ativando HTTPS para $subdomain..."
-        
-        config_file=""
-        case $subdomain in
-            "portainer.juscash.app")
-                config_file="portainer.juscash.app.conf"
-                ;;
-            "cadvisor.juscash.app")
-                config_file="cadvisor.juscash.app.conf"
-                ;;
-            "flower.juscash.app")
-                config_file="flower.juscash.app.conf"
-                ;;
-        esac
-        
-        if [[ -f "/etc/nginx/sites-available/$config_file" ]]; then
-            ln -sf /etc/nginx/sites-available/$config_file /etc/nginx/sites-enabled/
-            echo "✅ HTTPS ativado para $subdomain"
-        else
-            echo "⚠️  Arquivo de configuração não encontrado para $subdomain"
-        fi
-    else
-        echo "⚠️  Certificado não encontrado para $subdomain"
-    fi
-done
-
-# Testar configuração final
-echo ""
-echo "🔍 Testando configuração final..."
-if nginx -t; then
-    echo "✅ Configuração final válida"
-    systemctl reload nginx
-    echo "✅ Nginx recarregado com HTTPS"
-else
-    echo "❌ Erro na configuração final!"
-    echo "🔄 Restaurando configurações HTTP..."
-    rm -f /etc/nginx/sites-enabled/*.conf
-    for subdomain in "${!SUBDOMAINS[@]}"; do
-        ln -sf /etc/nginx/sites-available/${subdomain}-http.conf /etc/nginx/sites-enabled/
-    done
-    nginx -t && systemctl reload nginx
-    exit 1
-fi
-
-echo ""
-echo "🎉 Configuração SSL concluída!"
-echo ""
-echo "🌐 URLs HTTPS configuradas:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-for subdomain in "${!SUBDOMAINS[@]}"; do
-    if [[ -f "/etc/letsencrypt/live/$subdomain/fullchain.pem" ]]; then
-        echo "✅ https://$subdomain"
-    else
-        echo "❌ $subdomain (certificado não encontrado)"
-    fi
-done
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-echo ""
-echo "🔍 Para verificar certificados:"
-echo "sudo certbot certificates"
-echo ""
-echo "📊 Para ver logs:"
-echo "sudo tail -f /var/log/nginx/error.log"
+# Instruções finais
+echo
+echo "=== INSTRUÇÕES FINAIS ==="
+echo "1. Verifique se os subdomínios estão acessíveis:"
+echo "   - https://portainer.juscash.app"
+echo "   - https://flower.juscash.app" 
+echo "   - https://cadvisor.juscash.app"
+echo
+echo "2. Se ainda houver erros, verifique:"
+echo "   - DNS dos subdomínios apontando para o IP correto"
+echo "   - Firewall liberando portas 80 e 443"
+echo "   - Logs: tail -f /var/log/nginx/*.log"
+echo
+echo "3. Para renovação automática:"
+echo "   systemctl enable certbot.timer"
+echo "   systemctl start certbot.timer"
+echo
+echo "✅ Script de correção SSL concluído!"
