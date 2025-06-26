@@ -5,6 +5,20 @@
 set -e
 
 echo "🚀 Iniciando JusCash API..."
+echo "👤 Executando como usuário: $(whoami)"
+echo "📁 Diretório atual: $(pwd)"
+
+# Verificar permissões do diretório de logs
+if [ -d "/app/logs" ]; then
+    if [ -w "/app/logs" ]; then
+        echo "✅ Diretório de logs tem permissão de escrita"
+    else
+        echo "⚠️  Diretório de logs sem permissão de escrita"
+    fi
+else
+    echo "📁 Criando diretório de logs..."
+    mkdir -p /app/logs || echo "⚠️  Não foi possível criar diretório de logs"
+fi
 
 # Verificar e gerar SECRET_KEY se não existir
 if [ -z "$SECRET_KEY" ]; then

@@ -6,7 +6,9 @@ on:
   pull_request:
     branches: [ main, master ]
 
-# Workflow simplificado - Deploy direto na VPS sem registry
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
   test:
@@ -47,7 +49,7 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: 📦 Cache dependências
+    - name: 📦 Cache dependências Python
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
@@ -59,11 +61,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov
+        pip install pytest pytest-cov flake8
 
     - name: 🔍 Lint com flake8
       run: |
-        pip install flake8
         flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics
         flake8 app/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
@@ -85,7 +86,7 @@ jobs:
         name: codecov-umbrella
 
   deploy:
-    name: 🚀 Deploy to VPS
+    name: 🚀 Deploy para VPS
     runs-on: ubuntu-latest
     needs: test
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -103,129 +104,274 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    - name: 📋 Add server to known hosts
+    - name: 📋 Adicionar servidor aos hosts conhecidos
       run: |
         ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
-    - name: 🚀 Deploy to server
+    - name: 🚀 Deploy para servidor
       env:
         VPS_HOST: ${{ secrets.VPS_HOST }}
         VPS_USER: ${{ secrets.VPS_USER }}
+        DEPLOY_BRANCH: ${{ github.ref_name }}
+        DEPLOY_SHA: ${{ github.sha }}
       run: |
         ssh $VPS_USER@$VPS_HOST << EOF
           set -e
           
-          echo "🔄 Iniciando deploy automático para o branch: ${{ github.ref_name }}"
+          echo "╔══════════════════════════════════════════════════════════════╗"
+          echo "║           🚀 INICIANDO DEPLOY AUTOMÁTICO                     ║"
+          echo "╚══════════════════════════════════════════════════════════════╝"
+          echo "📅 Data/Hora: \$(date)"
+          echo "🌿 Branch: $DEPLOY_BRANCH"
+          echo "🔖 Commit SHA: $DEPLOY_SHA"
           
           # Navegar para diretório do projeto
           cd /var/www/juscash
           
-          # Backup da versão atual
-          echo "💾 Fazendo backup (se banco disponível)..."
-          docker-compose exec -T db pg_dump -U juscash juscash_db > backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null || echo "⚠️ Backup falhou - continuando deploy..."
+          # Criar diretório de backups se não existir
+          mkdir -p backups
           
-          # Pull das mudanças com limpeza forçada
-          echo "📥 Atualizando código..."
-          echo "🗑️ Limpeza forçada completa..."
-          git stash drop || true
+          # Backup do banco de dados (se disponível)
+          echo ""
+          echo "💾 Fazendo backup do banco de dados..."
+          if docker-compose exec -T db pg_dump -U juscash juscash_db > backups/backup_\$(date +%Y%m%d_%H%M%S).sql 2>/dev/null; then
+            echo "✅ Backup criado com sucesso"
+          else
+            echo "⚠️  Backup falhou (banco pode estar vazio) - continuando deploy..."
+          fi
+          
+          # Salvar estado atual dos containers
+          echo ""
+          echo "📸 Salvando estado atual dos containers..."
+          docker-compose ps > backups/containers_state_\$(date +%Y%m%d_%H%M%S).txt
+          
+          # Atualizar código
+          echo ""
+          echo "📥 Atualizando código fonte..."
+          echo "🔄 Branch atual: \$(git branch --show-current)"
+          
+          # Limpar alterações locais
+          git stash push -m "Auto-stash before deploy \$(date)" || true
           git checkout -- .
           git clean -fd
-          git fetch origin
-          git reset --hard origin/${{ github.ref_name }}
-          echo "✅ Código atualizado para: \$(git log --oneline -1)"
           
-          # Criar arquivo de versão para health check
+          # Buscar atualizações
+          git fetch origin --prune
+          git checkout $DEPLOY_BRANCH || git checkout -b $DEPLOY_BRANCH origin/$DEPLOY_BRANCH
+          git reset --hard origin/$DEPLOY_BRANCH
+          
+          # Criar arquivo de versão
+          echo ""
           echo "📝 Criando arquivo de versão..."
           echo "\$(git rev-parse --short HEAD)" > VERSION
+          echo "✅ Versão registrada: \$(cat VERSION)"
+          echo "📋 Último commit: \$(git log --oneline -1)"
           
-          # Corrigir permissões após reset
+          # Verificar e corrigir permissões
+          echo ""
           echo "🔒 Corrigindo permissões..."
-          chmod +x docker-entrypoint.sh
+          chmod +x docker-entrypoint.sh || echo "⚠️  docker-entrypoint.sh não encontrado"
+          chmod +x *.sh 2>/dev/null || true
           
-          # Parar containers (tolerante a falhas)
-          echo "⏹️ Parando containers..."
-          docker-compose down --remove-orphans || echo "⚠️ Erro ao parar containers - continuando..."
+          # Parar containers graciosamente
+          echo ""
+          echo "⏹️  Parando containers atuais..."
+          docker-compose stop || echo "⚠️  Alguns containers podem não estar rodando"
           
-          # Iniciar containers com rebuild forçado
-          echo "🚀 Iniciando e rebuilding containers..."
-          docker-compose up -d --build --force-recreate --remove-orphans || { echo "❌ Erro no up - tentando restart..."; sleep 5; docker-compose restart; }
+          # Aguardar containers pararem completamente
+          echo "⏳ Aguardando containers pararem..."
+          sleep 5
           
-          # Aguardar serviços
-          echo "⏳ Aguardando serviços inicializarem..."
-          sleep 20
+          # Remover containers antigos
+          echo ""
+          echo "🗑️  Removendo containers antigos..."
+          docker-compose down --remove-orphans || true
           
-          # Verificar se containers estão rodando
-          echo "📊 Verificando containers:"
-          docker-compose ps
+          # Limpar volumes não utilizados (cuidado com dados!)
+          echo ""
+          echo "🧹 Limpando volumes não utilizados..."
+          docker volume prune -f || true
           
-          # Aguardar mais um pouco para aplicação inicializar
-          echo "⏳ Aguardando aplicação inicializar..."
-          sleep 20
+          # Build com cache otimizado
+          echo ""
+          echo "🔨 Construindo nova imagem Docker..."
+          echo "ℹ️  Usando BuildKit para otimização de cache"
           
-          # Executar migrações se necessário
-          echo "🗄️ Aplicando migrações..."
-          if ! docker-compose exec -T web flask db upgrade; then
-            echo "⚠️ Migrações falharam - continuando..."
+          # Pull de imagens base para garantir versões atualizadas
+          docker-compose pull --ignore-pull-failures || true
+          
+          # Build com output detalhado
+          if docker-compose build --no-cache --pull; then
+            echo "✅ Build concluído com sucesso"
           else
-            echo "✅ Migrações aplicadas com sucesso"
+            echo "❌ Erro no build - tentando build sem cache..."
+            docker-compose build --no-cache || exit 1
           fi
           
-          # Health check rigoroso
-          echo "🏥 Verificando saúde da aplicação..."
-          sleep 15
-          
-          echo "🔍 Tentativa 1/3 de health check..."
-          if ! curl -f --max-time 10 http://localhost:5000/api/simple/ping; then
-            echo "⚠️ Tentativa 1 falhou, aguardando..."
-            sleep 10
-            echo "🔍 Tentativa 2/3 de health check..."
-            if ! curl -f --max-time 10 http://localhost:5000/api/simple/ping; then
-              echo "⚠️ Tentativa 2 falhou, aguardando..."
-              sleep 10
-              echo "🔍 Tentativa 3/3 de health check..."
-              if ! curl -f --max-time 10 http://localhost:5000/api/simple/ping; then
-                echo "❌ DEPLOY FALHOU! API não responde após 3 tentativas"
-                echo "📊 Status dos containers:"
-                docker-compose ps || true
-                echo "🔍 Logs do container web:"
-                docker-compose logs web | tail -20 || true
-                exit 1
-              fi
-            fi
+          # Iniciar containers
+          echo ""
+          echo "🚀 Iniciando novos containers..."
+          if docker-compose up -d --force-recreate --remove-orphans; then
+            echo "✅ Containers iniciados"
+          else
+            echo "❌ Erro ao iniciar containers"
+            docker-compose logs --tail=50
+            exit 1
           fi
           
-          echo "✅ Deploy realizado com sucesso! API respondendo corretamente"
+          # Aguardar inicialização
+          echo ""
+          echo "⏳ Aguardando serviços inicializarem..."
+          echo -n "Aguardando"
+          for i in {1..30}; do
+            echo -n "."
+            sleep 1
+          done
+          echo ""
           
-          # Mostrar status
+          # Verificar status dos containers
+          echo ""
           echo "📊 Status dos containers:"
           docker-compose ps
           
-          # Verificar commit e versão
-          echo "📋 Commit deployado: \$(git log --oneline -1)"
-          echo "🔖 Versão no arquivo: \$(cat VERSION)"
+          # Executar migrações
+          echo ""
+          echo "🗄️  Aplicando migrações do banco de dados..."
+          if docker-compose exec -T web flask db upgrade; then
+            echo "✅ Migrações aplicadas com sucesso"
+          else
+            echo "⚠️  Erro nas migrações - verificando logs..."
+            docker-compose logs web --tail=20
+            echo "⚠️  Continuando mesmo com erro nas migrações..."
+          fi
           
-          # Limpar imagens antigas
-          docker image prune -f
+          # Health checks detalhados
+          echo ""
+          echo "🏥 Executando health checks..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Manter apenas 5 backups mais recentes
-          ls -t backup_*.sql 2>/dev/null | tail -n +6 | xargs -r rm || true
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          SUCCESS=false
+          
+          while [ \$ATTEMPT -le \$MAX_ATTEMPTS ]; do
+            echo ""
+            echo "🔍 Tentativa \$ATTEMPT/\$MAX_ATTEMPTS..."
+            
+            # Verificar se o container web está rodando
+            if docker-compose ps web | grep -q "Up"; then
+              echo "✅ Container web está UP"
+              
+              # Tentar acessar o endpoint de health
+              if curl -f -s --max-time 10 http://localhost:5000/api/simple/ping > /tmp/health_response.json; then
+                echo "✅ API respondendo corretamente"
+                echo "📋 Resposta do health check:"
+                cat /tmp/health_response.json | python3 -m json.tool || cat /tmp/health_response.json
+                
+                # Verificar se a versão está correta
+                API_VERSION=\$(cat /tmp/health_response.json | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))" 2>/dev/null || echo "parse_error")
+                FILE_VERSION=\$(cat VERSION)
+                
+                echo ""
+                echo "🔖 Versão no arquivo: \$FILE_VERSION"
+                echo "🔖 Versão na API: \$API_VERSION"
+                
+                if [ "\$API_VERSION" = "\$FILE_VERSION" ]; then
+                  echo "✅ Versões coincidem - Deploy verificado!"
+                  SUCCESS=true
+                  break
+                else
+                  echo "⚠️  Versões não coincidem - API pode não ter atualizado ainda"
+                fi
+              else
+                echo "❌ API não está respondendo"
+                echo "📋 Logs recentes do container web:"
+                docker-compose logs web --tail=10
+              fi
+            else
+              echo "❌ Container web não está rodando"
+              docker-compose ps
+            fi
+            
+            if [ \$ATTEMPT -lt \$MAX_ATTEMPTS ]; then
+              echo "⏳ Aguardando 15 segundos antes da próxima tentativa..."
+              sleep 15
+            fi
+            
+            ATTEMPT=\$((ATTEMPT + 1))
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ "\$SUCCESS" = true ]; then
+            echo "✅ DEPLOY REALIZADO COM SUCESSO!"
+            
+            # Limpeza pós-deploy
+            echo ""
+            echo "🧹 Executando limpeza pós-deploy..."
+            
+            # Remover imagens antigas
+            docker image prune -f --filter "until=24h" || true
+            
+            # Manter apenas os 5 backups mais recentes
+            cd backups
+            ls -t backup_*.sql 2>/dev/null | tail -n +6 | xargs -r rm || true
+            ls -t containers_state_*.txt 2>/dev/null | tail -n +6 | xargs -r rm || true
+            cd ..
+            
+            echo ""
+            echo "📊 Informações finais do deploy:"
+            echo "🌿 Branch: $DEPLOY_BRANCH"
+            echo "🔖 Commit: \$(git rev-parse --short HEAD)"
+            echo "📅 Data/Hora: \$(date)"
+            echo "🌐 URL: https://cron.juscash.app"
+            
+          else
+            echo "❌ DEPLOY FALHOU!"
+            echo "Verifique os logs acima para identificar o problema."
+            
+            # Tentar rollback
+            echo ""
+            echo "🔄 Tentando rollback para versão anterior..."
+            git reset --hard HEAD~1
+            docker-compose down
+            docker-compose up -d --build
+            
+            exit 1
+          fi
         EOF
         
         # Verificar se o comando SSH teve sucesso
-        if [ $? -ne 0 ]; then
-          echo "❌ Deploy falhou! Comando SSH retornou erro."
+        SSH_EXIT_CODE=\$?
+        if [ \$SSH_EXIT_CODE -ne 0 ]; then
+          echo "❌ Deploy falhou! Comando SSH retornou código de erro: \$SSH_EXIT_CODE"
           exit 1
         fi
         
-        echo "✅ Comando SSH executado com sucesso!"
+        echo ""
+        echo "✅ Pipeline de deploy concluído com sucesso!"
 
-    - name: 📱 Notify deployment status
-      if: always()
+    - name: 🔔 Verificação final do deploy
+      if: success()
       run: |
-        if [ ${{ job.status }} == 'success' ]; then
-          echo "✅ Deploy realizado com sucesso para https://cron.juscash.app"
+        echo "🎉 Deploy realizado com sucesso!"
+        echo "📋 Commit deployado: ${{ github.sha }}"
+        echo "🌿 Branch: ${{ github.ref_name }}"
+        echo "🌐 Verificando API..."
+        
+        # Aguardar um pouco para garantir que o proxy reverso atualizou
+        sleep 10
+        
+        # Tentar acessar a API externa
+        if curl -f -s --max-time 15 https://cron.juscash.app/api/simple/ping; then
+          echo "✅ API está acessível externamente!"
         else
-          echo "❌ Deploy falhou!"
+          echo "⚠️  API não está acessível externamente ainda (pode levar alguns segundos)"
         fi
 
-# Notificações removidas - Discord não será usado 
+    - name: ❌ Notificar falha
+      if: failure()
+      run: |
+        echo "❌ Deploy falhou!"
+        echo "Verifique os logs do GitHub Actions para mais detalhes." 

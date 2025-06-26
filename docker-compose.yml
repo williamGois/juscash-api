@@ -3,10 +3,13 @@ version: '3.8'
 services:
   db:
     image: postgres:15-alpine
+    container_name: juscash_db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-juscash_db}
       POSTGRES_USER: ${POSTGRES_USER:-juscash}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-juscash123}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=pt_BR.UTF-8"
     ports:
       - "5432:5432"
     volumes:
@@ -16,25 +19,45 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    networks:
+      - juscash_network
 
   redis:
     image: redis:7-alpine
+    container_name: juscash_redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    networks:
+      - juscash_network
 
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - python:3.11-slim
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: juscash_web:latest
+    container_name: juscash_web
+    restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - SECRET_KEY=${SECRET_KEY}
-      - FLASK_ENV=${FLASK_ENV:-development}
+      - FLASK_ENV=${FLASK_ENV:-production}
       - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
+      - PYTHONUNBUFFERED=1
     ports:
       - "5000:5000"
     depends_on:
@@ -43,43 +66,103 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - .:/app
+      - ./logs:/app/logs
+      - ./VERSION:/app/VERSION:ro
     entrypoint: ["./docker-entrypoint.sh"]
-    command: ["python", "run.py"]
+    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "app:create_app()"]
+    networks:
+      - juscash_network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - juscash_web:latest
+    image: juscash_worker:latest
+    container_name: juscash_worker
+    restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123@db:5432/juscash_db}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - SECRET_KEY=${SECRET_KEY}
-      - FLASK_ENV=${FLASK_ENV:-development}
+      - FLASK_ENV=${FLASK_ENV:-production}
       - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
+      - PYTHONUNBUFFERED=1
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      web:
+        condition: service_started
     volumes:
-      - .:/app
       - ./logs:/app/logs
     entrypoint: ["./docker-entrypoint.sh"]
-    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info"]
+    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=2"]
+    networks:
+      - juscash_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   flower:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - juscash_web:latest
+    image: juscash_flower:latest
+    container_name: juscash_flower
+    restart: unless-stopped
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - SECRET_KEY=${SECRET_KEY}
+      - PYTHONUNBUFFERED=1
     ports:
       - "5555:5555"
     depends_on:
       redis:
         condition: service_healthy
+      worker:
+        condition: service_started
     volumes:
-      - .:/app
+      - ./logs:/app/logs
     entrypoint: ["./docker-entrypoint.sh"]  
     command: ["python", "flower-start.py"]
+    networks:
+      - juscash_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
 volumes:
-  postgres_data: 
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  juscash_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

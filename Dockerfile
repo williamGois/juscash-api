@@ -1,38 +1,54 @@
+# Build stage para dependências
+FROM python:3.11-slim as builder
+
+# Instalar apenas ferramentas de build necessárias
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar e instalar dependências Python primeiro (melhor cache)
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Runtime stage
 FROM python:3.11-slim
+
+# Labels para rastreamento
+LABEL maintainer="JusCash API"
+LABEL version="1.0"
+LABEL description="JusCash API com Selenium para scraping"
 
 # Configurar variáveis de ambiente
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Instalar dependências básicas
+# Instalar dependências do sistema em uma única camada
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     ca-certificates \
     curl \
     unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Adicionar repositório do Google Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list
-
-# Instalar Chrome e dependências mínimas essenciais
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    google-chrome-stable \
     xvfb \
     fonts-liberation \
     libnss3 \
     libgconf-2-4 \
     libxss1 \
-    && rm -rf /var/lib/apt/lists/*
+    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Instalar ChromeDriver usando o novo método para Chrome 115+
+# Instalar ChromeDriver
 RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}') && \
     echo "Chrome version: $CHROME_VERSION" && \
     CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d'.' -f1) && \
     if [ "$CHROME_MAJOR" -ge "115" ]; then \
-        # Novo método para Chrome 115+
         CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR}") && \
         echo "ChromeDriver version for Chrome $CHROME_MAJOR: $CHROMEDRIVER_VERSION" && \
         wget -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip" && \
@@ -41,7 +57,6 @@ RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}') && \
         chmod +x /usr/local/bin/chromedriver && \
         rm -rf /tmp/chromedriver* ; \
     else \
-        # Método antigo para Chrome < 115
         CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR}") && \
         echo "ChromeDriver version: $CHROMEDRIVER_VERSION" && \
         wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip" && \
@@ -50,15 +65,30 @@ RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}') && \
         rm /tmp/chromedriver.zip ; \
     fi
 
+# Criar usuário não-root
+RUN useradd -m -u 1000 appuser
+
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copiar dependências Python do builder
+COPY --from=builder /root/.local /home/appuser/.local
+ENV PATH=/home/appuser/.local/bin:$PATH
 
-COPY . .
+# Copiar arquivos da aplicação
+COPY --chown=appuser:appuser . .
 
-RUN chmod +x docker-entrypoint.sh
+# Garantir permissões corretas
+RUN chmod +x docker-entrypoint.sh && \
+    mkdir -p logs && \
+    chown -R appuser:appuser /app
+
+# Mudar para usuário não-root
+USER appuser
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:create_app()"] 
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:5000/api/simple/ping || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "app:create_app()"] 
