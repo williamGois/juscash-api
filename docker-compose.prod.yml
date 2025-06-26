@@ -126,45 +126,22 @@ services:
     image: juscash_web:prod
     container_name: juscash_worker_prod
     restart: always
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123_CHANGE_ME@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-temp-secret-key-CHANGE-ME}
-      - FLASK_ENV=production
-      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
-      - POSTGRES_DB=${POSTGRES_DB:-juscash_db}
-      - POSTGRES_USER=${POSTGRES_USER:-juscash}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-juscash123_CHANGE_ME}
-      - PYTHONUNBUFFERED=1
-      - C_FORCE_ROOT=true
+    env_file:
+      - env.vps
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
-      web:
+      db:
         condition: service_healthy
     networks:
       - juscash_network
-    entrypoint: ["./docker-entrypoint.sh"]
-    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1", "--max-tasks-per-child=100"]
-    deploy:
-      resources:
-        limits:
-          cpus: '0.2'
-          memory: 512M
-        reservations:
-          cpus: '0.05'
-          memory: 128M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "3"
+    working_dir: /app
+    command: ["sh", "-c", "sleep 15 && celery -A celery_worker.celery worker --loglevel=info -Q scraping,maintenance,default -c 1"]
+    volumes:
+        - /tmp
+        - /app/logs
     security_opt:
-      - no-new-privileges:true
-    env_file:
-      - env.vps
+        - no-new-privileges:true
 
   flower:
     image: juscash_web:prod
