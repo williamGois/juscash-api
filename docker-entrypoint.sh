@@ -45,6 +45,14 @@ else
     echo "✅ ChromeDriver já instalado: $(chromedriver --version)"
 fi
 
+# Fix adicional: verificar se webdriver-manager baixou ChromeDriver em local diferente
+if [ ! -x "/usr/local/bin/chromedriver" ] && [ -f "/app/.wdm/drivers/chromedriver/linux64/138.0.7204.49/chromedriver-linux64/chromedriver" ]; then
+    echo "🔧 Copiando ChromeDriver do webdriver-manager..."
+    cp /app/.wdm/drivers/chromedriver/linux64/138.0.7204.49/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+    chmod +x /usr/local/bin/chromedriver
+    echo "✅ ChromeDriver copiado e configurado"
+fi
+
 # Verificar Google Chrome
 if command -v google-chrome &> /dev/null; then
     echo "✅ Google Chrome: $(google-chrome --version)"
