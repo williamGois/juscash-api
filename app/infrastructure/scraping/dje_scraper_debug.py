@@ -157,8 +157,34 @@ class DJEScraperDebug:
         
         return chrome_options
 
+    def _ensure_chromedriver(self):
+        """Garante que o ChromeDriver esteja disponível"""
+        import os
+        import shutil
+        
+        # Verificar se ChromeDriver já está no local correto
+        if os.path.exists('/usr/local/bin/chromedriver') and os.access('/usr/local/bin/chromedriver', os.X_OK):
+            return True
+        
+        # Verificar se existe no local do webdriver-manager
+        wdm_path = '/app/.wdm/drivers/chromedriver/linux64/138.0.7204.49/chromedriver-linux64/chromedriver'
+        if os.path.exists(wdm_path):
+            print("🔧 Aplicando fix ChromeDriver: copiando do webdriver-manager...")
+            try:
+                shutil.copy2(wdm_path, '/usr/local/bin/chromedriver')
+                os.chmod('/usr/local/bin/chromedriver', 0o755)
+                print("✅ ChromeDriver copiado e configurado com sucesso!")
+                return True
+            except Exception as e:
+                print(f"❌ Erro ao copiar ChromeDriver: {e}")
+        
+        return False
+
     def _initialize_driver(self):
         """Inicializa o driver com configurações de debug"""
+        # Aplicar fix do ChromeDriver primeiro
+        self._ensure_chromedriver()
+        
         chrome_options = self._get_chrome_options()
         
         # Verificar prerequisitos
