@@ -41,7 +41,7 @@ for subdomain in "${SUBDOMAINS[@]}"; do
     
     if [ $? -eq 0 ]; then
         echo "✅ Certificado gerado com sucesso para $subdomain"
-    else
+        else
         echo "❌ Erro ao gerar certificado para $subdomain"
     fi
 done
@@ -69,7 +69,7 @@ for subdomain in "${SUBDOMAINS[@]}"; do
         # Verificar validade
         expiry=$(openssl x509 -enddate -noout -in /etc/letsencrypt/live/$subdomain/fullchain.pem | cut -d= -f2)
         echo "   Expira em: $expiry"
-    else
+        else
         echo "❌ $subdomain: Certificado AUSENTE"
     fi
 done

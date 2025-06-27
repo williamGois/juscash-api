@@ -112,7 +112,7 @@ echo "────────────────────────�
 
 if nginx -t 2>/dev/null; then
     echo "✅ Configuração nginx válida"
-else
+    else
     echo "❌ Erro na configuração nginx:"
     nginx -t
 fi

@@ -198,8 +198,8 @@ class DJEScraperDebug:
             self.driver.get(self.base_url)
             
             # Aguardar carregamento completo
-            self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            time.sleep(3)
+            print("  ⏳ Aguardando carregamento completo da página...")
+            self._wait_for_page_load()
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para continuar para o preenchimento do formulário...")
@@ -220,9 +220,20 @@ class DJEScraperDebug:
             # Aguardar select caderno estar disponível
             print("  📂 Aguardando select caderno...")
             select_caderno_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.cdCaderno")
-            select_caderno = Select(select_caderno_element)
-            select_caderno.select_by_value("-11")
-            print("  ✅ Caderno selecionado")
+            
+            # Usar JavaScript para selecionar o valor do select
+            try:
+                select_caderno = Select(select_caderno_element)
+                select_caderno.select_by_value("-11")
+                print("  ✅ Caderno selecionado via Selenium")
+            except:
+                print("  ⚠️ Selenium falhou, usando JavaScript para select")
+                self.driver.execute_script("""
+                    var select = arguments[0];
+                    select.value = '-11';
+                    select.dispatchEvent(new Event('change', {bubbles: true}));
+                """, select_caderno_element)
+                print("  ✅ Caderno selecionado via JavaScript")
 
             # Aguardar campo de busca estar disponível
             print("  🔍 Aguardando campo de busca...")
@@ -416,6 +427,29 @@ class DJEScraperDebug:
             finally:
                 self.driver = None
 
+    def _wait_for_page_load(self, timeout=30):
+        """Aguarda o carregamento completo da página"""
+        try:
+            # Aguardar documento estar pronto
+            WebDriverWait(self.driver, timeout).until(
+                lambda driver: driver.execute_script("return document.readyState") == "complete"
+            )
+            
+            # Aguardar jQuery terminar (se existir)
+            try:
+                WebDriverWait(self.driver, 5).until(
+                    lambda driver: driver.execute_script("return typeof jQuery === 'undefined' || jQuery.active == 0")
+                )
+            except:
+                pass  # jQuery pode não existir
+            
+            # Aguardar um pouco mais para elementos dinâmicos
+            time.sleep(2)
+            print("    ✅ Página carregada completamente")
+            
+        except Exception as e:
+            print(f"    ⚠️ Timeout aguardando carregamento da página: {e}")
+
     def _wait_for_element_ready(self, by, value, timeout=30):
         """Aguarda elemento estar visível, habilitado e pronto para interação"""
         try:
@@ -428,18 +462,43 @@ class DJEScraperDebug:
             # Aguardar estar clicável
             element = self.wait.until(EC.element_to_be_clickable((by, value)))
             
-            # Verificação adicional de estado
-            for attempt in range(5):
+            # Verificação adicional de estado usando JavaScript
+            for attempt in range(10):  # Aumentei para 10 tentativas
                 try:
-                    if element.is_enabled() and element.is_displayed():
-                        # Scroll para o elemento se necessário
-                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-                        time.sleep(0.5)
+                    # Usar JavaScript para verificar se o elemento está realmente pronto
+                    is_ready = self.driver.execute_script("""
+                        var element = arguments[0];
+                        return element && 
+                               element.offsetWidth > 0 && 
+                               element.offsetHeight > 0 && 
+                               !element.disabled && 
+                               element.style.display !== 'none' &&
+                               element.style.visibility !== 'hidden';
+                    """, element)
+                    
+                    if is_ready:
+                        # Scroll para o elemento usando JavaScript
+                        self.driver.execute_script("""
+                            arguments[0].scrollIntoView({
+                                behavior: 'smooth', 
+                                block: 'center',
+                                inline: 'center'
+                            });
+                        """, element)
+                        time.sleep(1)  # Aguardar scroll completar
+                        
+                        # Verificar novamente após scroll
+                        element = self.driver.find_element(by, value)
                         return element
+                        
                 except Exception as e:
                     print(f"    ⚠️ Tentativa {attempt + 1}: Elemento não pronto: {e}")
                     time.sleep(1)
-                    element = self.driver.find_element(by, value)
+                    # Re-localizar elemento
+                    try:
+                        element = self.driver.find_element(by, value)
+                    except:
+                        element = self.wait.until(EC.presence_of_element_located((by, value)))
             
             print(f"    ✅ Elemento {value} pronto para interação")
             return element
@@ -449,26 +508,54 @@ class DJEScraperDebug:
             raise
 
     def _safe_send_keys(self, element, text, clear_first=True):
-        """Envia texto de forma segura com verificações"""
+        """Envia texto de forma segura com JavaScript como fallback"""
         try:
+            # Primeira tentativa: Selenium normal
             if clear_first:
-                element.clear()
-                time.sleep(0.3)
+                try:
+                    element.clear()
+                    time.sleep(0.5)
+                except:
+                    # Fallback: limpar via JavaScript
+                    self.driver.execute_script("arguments[0].value = '';", element)
+                    time.sleep(0.5)
             
             # Verificar se o elemento ainda está ativo
-            if not element.is_enabled() or not element.is_displayed():
+            is_interactive = self.driver.execute_script("""
+                var element = arguments[0];
+                return element && !element.disabled && element.style.display !== 'none';
+            """, element)
+            
+            if not is_interactive:
                 raise Exception("Elemento não está mais disponível")
             
-            element.send_keys(text)
-            time.sleep(0.5)
+            # Tentar enviar texto via Selenium
+            try:
+                element.send_keys(text)
+                time.sleep(0.5)
+            except:
+                # Fallback: usar JavaScript
+                print(f"    ⚠️ Selenium falhou, usando JavaScript para inserir texto")
+                self.driver.execute_script("arguments[0].value = arguments[1];", element, text)
+                # Disparar eventos de mudança
+                self.driver.execute_script("""
+                    var element = arguments[0];
+                    element.dispatchEvent(new Event('input', {bubbles: true}));
+                    element.dispatchEvent(new Event('change', {bubbles: true}));
+                """, element)
+                time.sleep(0.5)
             
             # Verificar se o texto foi inserido
             current_value = element.get_attribute('value')
             if current_value != text:
                 print(f"    ⚠️ Valor esperado: {text}, valor atual: {current_value}")
-                element.clear()
-                time.sleep(0.3)
-                element.send_keys(text)
+                # Tentar novamente via JavaScript
+                self.driver.execute_script("arguments[0].value = arguments[1];", element, text)
+                self.driver.execute_script("""
+                    var element = arguments[0];
+                    element.dispatchEvent(new Event('input', {bubbles: true}));
+                    element.dispatchEvent(new Event('change', {bubbles: true}));
+                """, element)
                 
             print(f"    ✅ Texto inserido: {text}")
             return True
@@ -478,23 +565,53 @@ class DJEScraperDebug:
             raise
 
     def _safe_click(self, element):
-        """Clica de forma segura com fallback para JavaScript"""
+        """Clica de forma segura com múltiplos fallbacks"""
         try:
-            if not element.is_enabled() or not element.is_displayed():
+            # Verificar se elemento está disponível via JavaScript
+            is_clickable = self.driver.execute_script("""
+                var element = arguments[0];
+                return element && 
+                       !element.disabled && 
+                       element.style.display !== 'none' &&
+                       element.style.visibility !== 'hidden';
+            """, element)
+            
+            if not is_clickable:
                 raise Exception("Elemento não está disponível para click")
             
-            # Tentar click normal primeiro
-            element.click()
-            print(f"    ✅ Click normal realizado")
-            return True
-            
-        except Exception as e:
-            print(f"    ⚠️ Click normal falhou: {e}")
+            # Primeira tentativa: click normal do Selenium
             try:
-                # Fallback para JavaScript
+                element.click()
+                print(f"    ✅ Click normal realizado")
+                return True
+            except:
+                print(f"    ⚠️ Click normal falhou, tentando JavaScript")
+                
+            # Segunda tentativa: JavaScript click
+            try:
                 self.driver.execute_script("arguments[0].click();", element)
                 print(f"    ✅ Click via JavaScript realizado")
                 return True
-            except Exception as e2:
-                print(f"    ❌ Click via JavaScript falhou: {e2}")
-                raise 
+            except:
+                print(f"    ⚠️ JavaScript click falhou, tentando dispatchEvent")
+                
+            # Terceira tentativa: Simular evento de click
+            try:
+                self.driver.execute_script("""
+                    var element = arguments[0];
+                    var event = new MouseEvent('click', {
+                        view: window,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    element.dispatchEvent(event);
+                """, element)
+                print(f"    ✅ Click via dispatchEvent realizado")
+                return True
+            except Exception as e3:
+                print(f"    ❌ Todos os métodos de click falharam: {e3}")
+                raise
+                
+        except Exception as e:
+            print(f"    ❌ Erro geral no click: {e}")
+            raise 

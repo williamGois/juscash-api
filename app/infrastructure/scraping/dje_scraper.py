@@ -23,7 +23,7 @@ class DJEScraper:
         self.max_retries = 3
         logging.basicConfig(level=logging.INFO)
         self._initialize_driver()
-
+    
     def _get_chrome_options(self):
         """Configurações otimizadas do Chrome para Docker/Railway"""
         chrome_options = Options()
@@ -59,7 +59,7 @@ class DJEScraper:
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
         return chrome_options
-
+    
     def _initialize_driver(self):
         """Inicializa o driver com retry e múltiplas estratégias"""
         chrome_options = self._get_chrome_options()
@@ -69,16 +69,16 @@ class DJEScraper:
                 logging.info(f"Tentativa {attempt + 1} de inicializar Chrome driver...")
                 
                 # Tenta usar o webdriver-manager como primeira opção
-                try:
-                    service = Service(ChromeDriverManager().install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    logging.info("✅ Driver inicializado com webdriver-manager")
-                    break
-                except Exception as e:
+                    try:
+                        service = Service(ChromeDriverManager().install())
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        logging.info("✅ Driver inicializado com webdriver-manager")
+                        break
+                    except Exception as e:
                     logging.warning(f"Webdriver-manager falhou, tentando com o Chrome do sistema: {e}")
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                    logging.info("✅ Driver inicializado com Chrome do sistema")
-                    break
+                        self.driver = webdriver.Chrome(options=chrome_options)
+                        logging.info("✅ Driver inicializado com Chrome do sistema")
+                        break
             
             except Exception as e:
                 logging.error(f"Erro na tentativa {attempt + 1}: {e}")
@@ -98,7 +98,7 @@ class DJEScraper:
             self.driver.implicitly_wait(15)
             self.wait = WebDriverWait(self.driver, 30)
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
+    
     def _restart_driver_if_needed(self):
         """Reinicia o driver se não estiver respondendo."""
         try:
@@ -112,9 +112,9 @@ class DJEScraper:
             except: pass
             self._initialize_driver()
             return self.driver is not None
-
+    
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
-        if not self._restart_driver_if_needed():
+                if not self._restart_driver_if_needed():
             logging.error("Driver não está operacional. Abortando extração.")
             return []
 
@@ -146,8 +146,8 @@ class DJEScraper:
                     
                     if not publicacoes_elements and page_num == 1:
                         logging.info("Nenhuma publicação encontrada para os critérios definidos.")
-                        break
-
+                    break
+            
                     for element in publicacoes_elements:
                         publicacao_data = self._extrair_dados_publicacao(element)
                         if publicacao_data:
@@ -162,24 +162,24 @@ class DJEScraper:
                     except Exception:
                         logging.info("Fim da paginação. Não há mais link 'Próximo>'.")
                         break
-
-                except Exception as e:
+                        
+            except Exception as e:
                     logging.error(f"Erro ao processar página {page_num}: {e}")
                     break
             
             return all_publicacoes
-
+            
         except Exception as e:
             logging.error(f"Erro fatal durante a extração: {e}")
             return []
-
+    
     def _extrair_dados_publicacao(self, element: BeautifulSoup) -> Dict[str, Any]:
         try:
             texto_completo_element = element.select_one('tr.ementaClass2 td')
             if not texto_completo_element:
                 return None
             conteudo_completo = texto_completo_element.get_text(strip=True)
-
+            
             numero_processo = self._extrair_numero_processo(conteudo_completo)
             if not numero_processo:
                 return None
@@ -192,7 +192,7 @@ class DJEScraper:
                     data_str = match.group(1)
             
             data_disponibilizacao = datetime.strptime(data_str, "%d/%m/%Y") if data_str != "N/A" else None
-
+            
             return {
                 'numero_processo': numero_processo,
                 'data_disponibilizacao': data_disponibilizacao,
@@ -207,11 +207,11 @@ class DJEScraper:
         except Exception as e:
             logging.error(f"Erro ao parsear dados da publicação: {e}")
             return None
-
+    
     def _extrair_numero_processo(self, texto: str) -> str:
         match = re.search(r'\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}', texto)
         return match.group(0) if match else None
-
+    
     def _extrair_autores(self, texto: str) -> str:
         patterns = [
             r'(?:Apelante|Requerente|Exequente)s?:?\s*([^,(\n]+)',
@@ -222,11 +222,11 @@ class DJEScraper:
             if match:
                 return match.group(1).strip()
         return None
-
+    
     def _extrair_advogados(self, texto: str) -> str:
         matches = re.findall(r'Advogad[oa]:\s*([^(\n]+?)\s*\(OAB:\s*\d+/[A-Z]{2}\)', texto, re.IGNORECASE)
         return ', '.join(set([adv.strip() for adv in matches])) if matches else None
-
+    
     def _extrair_valor_monetario(self, texto: str, patterns: List[str]) -> float:
         for pattern in patterns:
             match = re.search(pattern, texto, re.IGNORECASE)
@@ -237,7 +237,7 @@ class DJEScraper:
                 except ValueError:
                     continue
         return None
-
+    
     def close(self):
         if self.driver:
             try:

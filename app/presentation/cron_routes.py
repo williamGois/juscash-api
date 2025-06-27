@@ -292,4 +292,4 @@ class TaskStatus(Resource):
             return {
                 'state': 'ERROR',
                 'error': f'Erro ao verificar status: {str(e)}'
-            }, 500
+            }, 500 

@@ -161,7 +161,7 @@ sudo certbot renew --dry-run
 
 ### Verificar Certificados
 ```bash
-sudo certbot certificates
+sudo certbot certificates  
 ```
 
 ### Testar SSL de um Subdomínio
