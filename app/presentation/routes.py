@@ -1682,82 +1682,19 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
     
     try:
         from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
-        from selenium.webdriver.support.ui import WebDriverWait, Select
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.common.by import By
         
         scraper = DJEScraperDebug(visual_mode=False)
         
         try:
-            # Etapa 1: Acessar DJE
-            scraping_status['step'] = 'Acessando site do DJE...'
-            scraping_status['progress'] = 15
-            
-            scraper.driver.get("https://dje.tjsp.jus.br/cdje/index.do")
-            time.sleep(3)
-            
-            # Etapa 2: Aguardar carregamento
-            scraping_status['step'] = 'Aguardando carregamento da página...'
+            # Usar o método debug que tem todos os fallbacks
+            scraping_status['step'] = 'Executando scraping com métodos seguros...'
             scraping_status['progress'] = 25
             
-            wait = WebDriverWait(scraper.driver, 30)
+            # Executar o scraping debug
+            publicacoes = scraper.extrair_publicacoes_debug(data_inicio, data_fim, pause_between_steps=False)
             
-            # Etapa 3: Preencher formulário
-            scraping_status['step'] = 'Preenchendo formulário de pesquisa...'
-            scraping_status['progress'] = 35
-            
-            # Data início
-            data_inicio_field = wait.until(EC.visibility_of_element_located((By.ID, "dtInicioString")))
-            data_inicio_field.clear()
-            data_inicio_field.send_keys(data_inicio.strftime("%d/%m/%Y"))
-            
-            scraping_status['progress'] = 45
-            
-            # Data fim
-            data_fim_field = scraper.driver.find_element(By.ID, "dtFimString")
-            data_fim_field.clear()
-            data_fim_field.send_keys(data_fim.strftime("%d/%m/%Y"))
-            
-            scraping_status['progress'] = 55
-            
-            # Selecionar caderno
-            select_caderno = Select(scraper.driver.find_element(By.NAME, "dadosConsulta.cdCaderno"))
-            select_caderno.select_by_value("-11")
-            
-            scraping_status['progress'] = 65
-            
-            # Termo de busca
-            search_box = scraper.driver.find_element(By.ID, "procura")
-            search_box.clear()
-            search_box.send_keys('"instituto nacional do seguro social" E inss')
-            
-            # Etapa 4: Submeter formulário
-            scraping_status['step'] = 'Submetendo formulário...'
-            scraping_status['progress'] = 75
-            
-            submit_button = scraper.driver.find_element(By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")
-            submit_button.click()
-            
-            # Etapa 5: Aguardar resultados
-            scraping_status['step'] = 'Aguardando resultados...'
-            scraping_status['progress'] = 85
-            
-            time.sleep(5)
-            
-            # Etapa 6: Processar resultados
-            scraping_status['step'] = 'Processando resultados...'
-            scraping_status['progress'] = 95
-            
-            try:
-                wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
-                result_elements = scraper.driver.find_elements(By.CSS_SELECTOR, "div#divResultadosInferior table tr.fundocinza1")
-                
-                scraping_status['step'] = f'✅ Concluído! {len(result_elements)} publicações encontradas'
-                scraping_status['progress'] = 100
-                
-            except:
-                scraping_status['step'] = '✅ Concluído! Página de resultados carregada'
-                scraping_status['progress'] = 100
+            scraping_status['step'] = f'✅ Concluído! {len(publicacoes)} publicações extraídas'
+            scraping_status['progress'] = 100
             
             # Aguardar antes de finalizar
             time.sleep(10)
