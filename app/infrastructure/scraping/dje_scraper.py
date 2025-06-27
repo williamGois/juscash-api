@@ -98,7 +98,7 @@ class DJEScraper:
             self.driver.implicitly_wait(15)
             self.wait = WebDriverWait(self.driver, 30)
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    
+
     def _restart_driver_if_needed(self):
         """Reinicia o driver se não estiver respondendo."""
         try:
@@ -113,7 +113,7 @@ class DJEScraper:
                 pass
             self._initialize_driver()
             return self.driver is not None
-    
+
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
         if not self._restart_driver_if_needed():
             logging.error("Driver não está operacional. Abortando extração.")
