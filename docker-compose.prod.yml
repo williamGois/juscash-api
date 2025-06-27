@@ -1,19 +1,21 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:15-alpine
     container_name: juscash_db_prod
     restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-juscash_db}
-      POSTGRES_USER: ${POSTGRES_USER:-juscash}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-juscash123_CHANGE_ME}
+      POSTGRES_DB: juscash_db
+      POSTGRES_USER: juscash
+      POSTGRES_PASSWORD: juscash123
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - juscash_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-juscash} -d ${POSTGRES_DB:-juscash_db}"]
+      test: ["CMD-SHELL", "pg_isready -U juscash -d juscash_db"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -72,27 +74,29 @@ services:
     image: juscash_web:prod
     container_name: juscash_web_prod
     restart: always
-    environment:
-      - ENVIRONMENT=production
-      - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123_CHANGE_ME@db:5432/juscash_db}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-temp-secret-key-CHANGE-ME}
-      - FLASK_ENV=production
-      - DJE_BASE_URL=${DJE_BASE_URL:-https://dje.tjsp.jus.br/cdje}
-      - POSTGRES_DB=${POSTGRES_DB:-juscash_db}
-      - POSTGRES_USER=${POSTGRES_USER:-juscash}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-juscash123_CHANGE_ME}
-      - PYTHONUNBUFFERED=1
-
+    entrypoint: ["./docker-entrypoint.sh"]
+    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "600", "--workers", "4", "--threads", "2", "--worker-class", "gthread", "--keep-alive", "120", "--graceful-timeout", "300", "run:app"]
+    volumes:
+      - ./VERSION:/app/VERSION:ro
+      - ./logs:/app/logs
     ports:
-      - "127.0.0.1:5000:5000"
+      - "5000:5000"
+    environment:
+      - FLASK_APP=run.py
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://juscash:juscash123@db:5432/juscash_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DISPLAY=:99
+      - POSTGRES_DB=juscash_db
+      - POSTGRES_USER=juscash
+      - POSTGRES_PASSWORD=juscash123
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./VERSION:/app/VERSION:ro
     networks:
       - juscash_network
     healthcheck:
@@ -118,52 +122,92 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp
-      - /app/logs
       - /root/.cache
     env_file:
       - env.vps
 
   worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.alternative
     image: juscash_web:prod
     container_name: juscash_worker_prod
     restart: always
-    env_file:
-      - env.vps
+    entrypoint: ["./docker-entrypoint.sh"]
+    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1"]
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_APP=run.py
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://juscash:juscash123@db:5432/juscash_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DISPLAY=:99
+      - POSTGRES_DB=juscash_db
+      - POSTGRES_USER=juscash
+      - POSTGRES_PASSWORD=juscash123
     depends_on:
-      redis:
-        condition: service_healthy
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - juscash_network
-    entrypoint: ["./docker-entrypoint.sh"]
-    command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1"]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     security_opt:
-        - no-new-privileges:true
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /root/.cache
+    env_file:
+      - env.vps
 
   flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.alternative
     image: juscash_web:prod
     container_name: juscash_flower_prod
     restart: always
-    environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - SECRET_KEY=${SECRET_KEY:-temp-secret-key-CHANGE-ME}
-      - PYTHONUNBUFFERED=1
+    entrypoint: ["./docker-entrypoint.sh"]
+    command: ["celery", "-A", "celery_worker.celery", "flower", "--address=0.0.0.0", "--port=5555", "--basic_auth=admin:juscash2024"]
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
     ports:
-      - "127.0.0.1:5555:5555"
+      - "5555:5555"
+    environment:
+      - FLASK_APP=run.py
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://juscash:juscash123@db:5432/juscash_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DISPLAY=:99
+      - POSTGRES_DB=juscash_db
+      - POSTGRES_USER=juscash
+      - POSTGRES_PASSWORD=juscash123
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
-      worker:
-        condition: service_started
-    networks:
-      - juscash_network
     working_dir: /app
-    command: ["sh", "-c", "sleep 10 && celery -A celery_worker.celery flower --address=0.0.0.0 --port=5555 --basic_auth=admin:juscash2024"]
     deploy:
       resources:
         limits:
@@ -179,6 +223,9 @@ services:
         max-file: "3"
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /root/.cache
     env_file:
       - env.vps
 
@@ -186,16 +233,14 @@ services:
   # MONITORAMENTO VISUAL - PORTAINER (Interface como Railway)
   # ================================================================================
   portainer:
-    image: portainer/portainer-ce:2.21.4
+    image: portainer/portainer-ce:latest
     container_name: juscash_portainer
     restart: always
-    ports:
-      - "127.0.0.1:9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
-    networks:
-      - juscash_network
+    ports:
+      - "9000:9000"
     deploy:
       resources:
         limits:
@@ -216,19 +261,16 @@ services:
   # MÉTRICAS DE CONTAINERS - cAdvisor
   # ================================================================================
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: gcr.io/cadvisor/cadvisor:latest
     container_name: juscash_cadvisor
     restart: always
-    ports:
-      - "127.0.0.1:8080:8080"
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      - /var/run:/var/run:rw
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    networks:
-      - juscash_network
+    ports:
+      - "8080:8080"
     privileged: true
     devices:
       - /dev/kmsg

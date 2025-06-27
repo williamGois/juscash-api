@@ -21,7 +21,7 @@ class DJEScraper:
         self.driver = None
         self.wait = None
         self.max_retries = 3
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self._initialize_driver()
     
     def _get_chrome_options(self):
@@ -98,7 +98,7 @@ class DJEScraper:
             self.driver.implicitly_wait(15)
             self.wait = WebDriverWait(self.driver, 30)
             self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
+    
     def _restart_driver_if_needed(self):
         """Reinicia o driver se não estiver respondendo."""
         try:
@@ -113,7 +113,7 @@ class DJEScraper:
                 pass
             self._initialize_driver()
             return self.driver is not None
-
+    
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
         if not self._restart_driver_if_needed():
             logging.error("Driver não está operacional. Abortando extração.")
@@ -123,20 +123,24 @@ class DJEScraper:
         self.driver.get(self.base_url)
 
         try:
+            logging.info("Preenchendo formulário de busca...")
             self.wait.until(EC.visibility_of_element_located((By.ID, "dtInicioString"))).send_keys(data_inicio.strftime("%d/%m/%Y"))
             self.driver.find_element(By.ID, "dtFimString").send_keys(data_fim.strftime("%d/%m/%Y"))
             
             select_caderno = Select(self.driver.find_element(By.NAME, "dadosConsulta.cdCaderno"))
             select_caderno.select_by_value("-11")
+            logging.info("Caderno selecionado: -11")
 
             self.driver.find_element(By.ID, "procura").send_keys('"instituto nacional do seguro social" E inss')
+            logging.info("Termos de busca inseridos")
             
+            logging.info("Submetendo formulário...")
             self.driver.find_element(By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']").click()
 
             all_publicacoes = []
             page_num = 1
             while True:
-                logging.info(f"Processando página de resultados {page_num}...")
+                logging.info(f"Processando página {page_num}...")
                 try:
                     self.wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
                     time.sleep(2)
@@ -147,25 +151,37 @@ class DJEScraper:
                     if not publicacoes_elements and page_num == 1:
                         logging.info("Nenhuma publicação encontrada para os critérios definidos.")
                         break
-                
-                    for element in publicacoes_elements:
+                    
+                    logging.info(f"Encontradas {len(publicacoes_elements)} publicações na página {page_num}")
+                    
+                    for idx, element in enumerate(publicacoes_elements, 1):
+                        logging.info(f"Processando publicação {idx}/{len(publicacoes_elements)} da página {page_num}")
                         publicacao_data = self._extrair_dados_publicacao(element)
                         if publicacao_data:
+                            logging.info(f"Publicação extraída com sucesso: Processo {publicacao_data['numero_processo']}")
                             all_publicacoes.append(publicacao_data)
+                        else:
+                            logging.warning(f"Falha ao extrair dados da publicação {idx} na página {page_num}")
                     
                     try:
-                        next_page_link = self.driver.find_element(By.LINK_TEXT, 'Próximo>')
-                        logging.info("Encontrado link 'Próximo>'. Navegando para a próxima página.")
-                        self.driver.execute_script("arguments[0].click();", next_page_link)
-                        page_num += 1
-                    except Exception:
-                        logging.info("Fim da paginação. Não há mais link 'Próximo>'.")
+                        next_page = self.driver.find_elements(By.LINK_TEXT, 'Próximo>')
+                        if next_page:
+                            logging.info(f"Navegando para página {page_num + 1}...")
+                            self.driver.execute_script("arguments[0].click();", next_page[0])
+                            page_num += 1
+                            time.sleep(2)
+                        else:
+                            logging.info("Fim da paginação alcançado.")
+                            break
+                    except Exception as e:
+                        logging.info(f"Fim da paginação: {e}")
                         break
                         
                 except Exception as e:
                     logging.error(f"Erro ao processar página {page_num}: {e}")
                     break
             
+            logging.info(f"Extração concluída. Total de publicações extraídas: {len(all_publicacoes)}")
             return all_publicacoes
             
         except Exception as e:
@@ -176,11 +192,15 @@ class DJEScraper:
         try:
             texto_completo_element = element.select_one('tr.ementaClass2 td')
             if not texto_completo_element:
+                logging.warning("Elemento de texto completo não encontrado")
                 return None
+                
             conteudo_completo = texto_completo_element.get_text(strip=True)
+            logging.debug(f"Conteúdo extraído: {conteudo_completo[:100]}...")
             
             numero_processo = self._extrair_numero_processo(conteudo_completo)
             if not numero_processo:
+                logging.warning("Número do processo não encontrado no conteúdo")
                 return None
             
             data_str = "N/A"
@@ -192,17 +212,24 @@ class DJEScraper:
             
             data_disponibilizacao = datetime.strptime(data_str, "%d/%m/%Y") if data_str != "N/A" else None
             
-            return {
+            autores = self._extrair_autores(conteudo_completo)
+            advogados = self._extrair_advogados(conteudo_completo)
+            
+            publicacao = {
                 'numero_processo': numero_processo,
                 'data_disponibilizacao': data_disponibilizacao,
-                'autores': self._extrair_autores(conteudo_completo) or '',
-                'advogados': self._extrair_advogados(conteudo_completo) or '',
+                'autores': autores or '',
+                'advogados': advogados or '',
                 'conteudo_completo': conteudo_completo,
                 'valor_principal_bruto': self._extrair_valor_monetario(conteudo_completo, [r'valor\s+principal\s+bruto[:\s]*R\$\s*([\d.,]+)']),
                 'valor_principal_liquido': self._extrair_valor_monetario(conteudo_completo, [r'valor\s+principal\s+líquido[:\s]*R\$\s*([\d.,]+)']),
                 'valor_juros_moratorios': self._extrair_valor_monetario(conteudo_completo, [r'juros\s+moratórios[:\s]*R\$\s*([\d.,]+)']),
                 'honorarios_advocaticios': self._extrair_valor_monetario(conteudo_completo, [r'honorários\s+advocatícios[:\s]*R\$\s*([\d.,]+)'])
             }
+            
+            logging.debug(f"Dados extraídos com sucesso para o processo {numero_processo}")
+            return publicacao
+            
         except Exception as e:
             logging.error(f"Erro ao parsear dados da publicação: {e}")
             return None

@@ -11,6 +11,9 @@ import subprocess
 import time
 import tempfile
 import base64
+import re
+import logging
+import uuid
 
 def get_version():
     """Lê a versão do arquivo VERSION na raiz do projeto."""
@@ -372,7 +375,6 @@ class ScrapingExtract(Resource):
         try:
             from celery import current_app as celery_app
             
-            # FORÇAR CONFIGURAÇÃO DO CELERY ANTES DE USAR
             redis_url = current_app.config.get('REDIS_URL') or os.environ.get('REDIS_URL')
             if redis_url and (not celery_app.conf.broker_url or str(celery_app.conf.broker_url) == 'None'):
                 celery_app.conf.update({
@@ -383,7 +385,6 @@ class ScrapingExtract(Resource):
                     'enable_utc': True
                 })
             
-            # Tentar verificar se o Redis está acessível
             try:
                 celery_app.control.inspect().ping()
                 redis_available = True
@@ -391,7 +392,6 @@ class ScrapingExtract(Resource):
                 redis_available = False
             
             if redis_available:
-                # Usar Celery se Redis estiver disponível
                 task = celery_app.send_task(
                     'app.tasks.scraping_tasks.extract_publicacoes_task',
                     args=[data_inicio.isoformat(), data_fim.isoformat()]
@@ -403,68 +403,84 @@ class ScrapingExtract(Resource):
                     'message': 'Extração de publicações iniciada em background via Celery'
                 }
             else:
-                # Fallback: execução síncrona se Redis não estiver disponível
-                from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
-                from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
-                from app.infrastructure.scraping.dje_scraper import DJEScraper
-                
+                logging.info("Redis indisponível, executando de forma síncrona...")
                 repository = SQLAlchemyPublicacaoRepository()
                 scraper = DJEScraper()
                 use_case = ExtractPublicacoesUseCase(repository, scraper)
                 
-                # Execução síncrona
-                publicacoes = use_case.execute(data_inicio, data_fim)
-                scraper.close()
-                
-                # Gerar um task_id fake para compatibilidade
-                import uuid
-                fake_task_id = str(uuid.uuid4())
-                
-                return {
-                    'task_id': fake_task_id,
-                    'status': 'Concluído (sync)',
-                    'message': f'Extração concluída: {len(publicacoes)} publicações extraídas',
-                    'result': {
-                        'total_extraidas': len(publicacoes),
-                        'data_inicio': data_inicio.isoformat(),
-                        'data_fim': data_fim.isoformat(),
-                        'status': 'concluido'
+                try:
+                    logging.info(f"Iniciando extração síncrona de {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+                    publicacoes = use_case.execute(data_inicio, data_fim)
+                    logging.info(f"Extração concluída: {len(publicacoes)} publicações extraídas")
+                    
+                    import uuid
+                    fake_task_id = str(uuid.uuid4())
+                    
+                    return {
+                        'task_id': fake_task_id,
+                        'status': 'Concluído (sync)',
+                        'message': f'Extração concluída com sucesso: {len(publicacoes)} publicações extraídas',
+                        'result': {
+                            'total_extraidas': len(publicacoes),
+                            'data_inicio': data_inicio.isoformat(),
+                            'data_fim': data_fim.isoformat(),
+                            'status': 'concluido'
+                        }
                     }
-                }
+                except Exception as e:
+                    logging.error(f"Erro durante a extração síncrona: {str(e)}")
+                    return {
+                        'task_id': None,
+                        'status': 'Erro',
+                        'message': f'Erro durante a extração: {str(e)}'
+                    }, 500
+                finally:
+                    if scraper:
+                        scraper.close()
                 
         except Exception as e:
-            # Em caso de erro geral, tentar fallback síncrono
+            logging.error(f"Erro geral na rota de extração: {str(e)}")
             try:
-                from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
-                from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
-                from app.infrastructure.scraping.dje_scraper import DJEScraper
-                
+                logging.info("Tentando fallback síncrono...")
                 repository = SQLAlchemyPublicacaoRepository()
                 scraper = DJEScraper()
                 use_case = ExtractPublicacoesUseCase(repository, scraper)
                 
-                publicacoes = use_case.execute(data_inicio, data_fim)
-                scraper.close()
-                
-                import uuid
-                fake_task_id = str(uuid.uuid4())
-                
-                return {
-                    'task_id': fake_task_id,
-                    'status': 'Concluído (fallback)',
-                    'message': f'Redis indisponível. Execução síncrona: {len(publicacoes)} publicações extraídas',
-                    'result': {
-                        'total_extraidas': len(publicacoes),
-                        'data_inicio': data_inicio.isoformat(),
-                        'data_fim': data_fim.isoformat(),
-                        'status': 'concluido'
+                try:
+                    logging.info(f"Iniciando extração fallback de {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+                    publicacoes = use_case.execute(data_inicio, data_fim)
+                    logging.info(f"Extração fallback concluída: {len(publicacoes)} publicações extraídas")
+                    
+                    import uuid
+                    fake_task_id = str(uuid.uuid4())
+                    
+                    return {
+                        'task_id': fake_task_id,
+                        'status': 'Concluído (fallback)',
+                        'message': f'Redis indisponível. Execução síncrona: {len(publicacoes)} publicações extraídas',
+                        'result': {
+                            'total_extraidas': len(publicacoes),
+                            'data_inicio': data_inicio.isoformat(),
+                            'data_fim': data_fim.isoformat(),
+                            'status': 'concluido'
+                        }
                     }
-                }
+                except Exception as e:
+                    logging.error(f"Erro durante a extração fallback: {str(e)}")
+                    return {
+                        'task_id': None,
+                        'status': 'Erro',
+                        'message': f'Erro durante a extração fallback: {str(e)}'
+                    }, 500
+                finally:
+                    if scraper:
+                        scraper.close()
             except Exception as fallback_error:
+                logging.error(f"Erro fatal durante fallback: {str(fallback_error)}")
                 return {
                     'task_id': None,
                     'status': 'Erro',
-                    'message': f'Erro na execução: {str(fallback_error)}'
+                    'message': f'Erro fatal durante a execução: {str(fallback_error)}'
                 }, 500
 
 task_status_model = scraping_ns.model('TaskStatus', {
@@ -1653,37 +1669,185 @@ Aguardando logs do sistema...
         
         return Response(html_template, mimetype='text/html')
 
-@selenium_visual_ns.route('/start')
-class StartVisualScraping(Resource):
-    @selenium_visual_ns.doc('start_visual_scraping')
-    def post(self):
-        """Inicia scraping visual"""
-        global scraping_status
-        
-        if scraping_status['active']:
-            return {'success': False, 'error': 'Scraping já está ativo'}, 400
-        
-        data = request.get_json()
-        
+@selenium_visual_ns.route('/status')
+@selenium_visual_ns.doc('get_selenium_visual_status')
+class SeleniumVisualStatus(Resource):
+    def get(self):
+        """Retorna o status atual do scraping visual"""
         try:
-            data_inicio = datetime.fromisoformat(data['data_inicio'])
-            data_fim = datetime.fromisoformat(data['data_fim'])
-        except (KeyError, ValueError):
-            return {'success': False, 'error': 'Datas inválidas'}, 400
+            scraper = DJEScraperDebug()
+            
+            # Verificar se o scraper está ativo
+            if not scraper.driver:
+                return {
+                    'active': False,
+                    'step': '✅ Concluído! 0 extraídas, 0 salvas no BD',
+                    'progress': 100,
+                    'logs': scraper.get_logs()[-50:],  # Últimos 50 logs
+                    'url_atual': None,
+                    'pagina_atual': None,
+                    'total_paginas': None,
+                    'total_extraidas': 0,
+                    'total_salvas': 0,
+                    'ultima_atualizacao': datetime.now().isoformat()
+                }
+            
+            # Obter URL atual
+            try:
+                url_atual = scraper.driver.current_url
+            except:
+                url_atual = None
+            
+            # Obter página atual
+            try:
+                page_source = scraper.driver.page_source
+                match = re.search(r'Resultados \d+ a \d+ de (\d+)', page_source)
+                total_resultados = int(match.group(1)) if match else None
+                
+                match = re.search(r'Página (\d+) de (\d+)', page_source)
+                if match:
+                    pagina_atual = int(match.group(1))
+                    total_paginas = int(match.group(2))
+                else:
+                    pagina_atual = None
+                    total_paginas = None
+            except:
+                total_resultados = None
+                pagina_atual = None
+                total_paginas = None
+            
+            # Obter logs recentes
+            logs = scraper.get_logs()[-50:]  # Últimos 50 logs
+            
+            # Contar publicações extraídas/salvas
+            total_extraidas = 0
+            total_salvas = 0
+            for log in logs:
+                if "Publicação processada:" in log:
+                    total_extraidas += 1
+                if "Processo salvo com sucesso" in log:
+                    total_salvas += 1
+            
+            # Retornar status atual
+            return {
+                'active': True,
+                'step': '🔄 Em execução...',
+                'progress': 50,
+                'logs': logs,
+                'url_atual': url_atual,
+                'pagina_atual': pagina_atual,
+                'total_paginas': total_paginas,
+                'total_resultados': total_resultados,
+                'total_extraidas': total_extraidas,
+                'total_salvas': total_salvas,
+                'ultima_atualizacao': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {
+                'active': False,
+                'step': f'❌ Erro: {str(e)}',
+                'progress': 0,
+                'logs': [],
+                'url_atual': None,
+                'pagina_atual': None,
+                'total_paginas': None,
+                'total_extraidas': 0,
+                'total_salvas': 0,
+                'ultima_atualizacao': datetime.now().isoformat()
+            }
+
+@selenium_visual_ns.route('/start')
+@selenium_visual_ns.doc('start_selenium_visual')
+class SeleniumVisualStart(Resource):
+    def post(self):
+        """Inicia o scraping visual"""
+        try:
+            # Iniciar thread de scraping
+            thread = threading.Thread(target=run_visual_scraping_thread, args=(datetime.now(), datetime.now()))
+            thread.daemon = True
+            thread.start()
+            
+            return {
+                'message': '✅ Scraping visual iniciado!',
+                'status': 'running'
+            }
+            
+        except Exception as e:
+            return {
+                'message': f'❌ Erro ao iniciar scraping: {str(e)}',
+                'status': 'error'
+            }
+
+def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
+    """Thread que executa o scraping visual"""
+    try:
+        # Inicializar scraper em modo visual
+        scraper = DJEScraperDebug(visual_mode=True)
+        scraper.log("🚀 Iniciando scraping visual...")
         
-        # Iniciar thread de scraping
-        thread = threading.Thread(
-            target=run_visual_scraping_thread,
-            args=(data_inicio, data_fim)
-        )
-        thread.daemon = True
-        thread.start()
+        # Extrair publicações
+        publicacoes = scraper.extrair_publicacoes_debug(data_inicio, data_fim)
+        scraper.log(f"📊 Total de publicações extraídas: {len(publicacoes)}")
         
-        return {
-            'success': True,
-            'message': 'Scraping visual iniciado',
-            'periodo': f"{data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
-        }
+        # Salvar no banco
+        publicacoes_salvas = []
+        repository = SQLAlchemyPublicacaoRepository()
+        
+        for publicacao_data in publicacoes:
+            try:
+                # Validar dados obrigatórios
+                numero_processo = publicacao_data.get('numero_processo')
+                if not numero_processo or numero_processo == 'Não identificado':
+                    scraper.log(f"⚠️ Número do processo inválido, pulando")
+                    continue
+                
+                # Verificar se já existe
+                if repository.find_by_numero_processo(numero_processo):
+                    scraper.log(f"ℹ️ Processo {numero_processo} já existe no banco")
+                    continue
+                
+                # Data - usar data atual se None
+                data_disponibilizacao = publicacao_data.get('data_disponibilizacao')
+                if not data_disponibilizacao:
+                    data_disponibilizacao = datetime.now()
+                    scraper.log(f"📅 Data None, usando data atual: {data_disponibilizacao}")
+                
+                # Campos texto - usar valores padrão se vazios
+                autores = publicacao_data.get('autores') or 'Autor não identificado'
+                advogados = publicacao_data.get('advogados') or 'Advogado não identificado'
+                conteudo_completo = publicacao_data.get('conteudo_completo') or 'Conteúdo não extraído'
+                
+                # Criar entidade
+                publicacao = Publicacao(
+                    numero_processo=numero_processo,
+                    data_disponibilizacao=data_disponibilizacao,
+                    autores=autores,
+                    advogados=advogados,
+                    conteudo_completo=conteudo_completo,
+                    valor_principal_bruto=publicacao_data.get('valor_principal_bruto'),
+                    valor_principal_liquido=publicacao_data.get('valor_principal_liquido'),
+                    valor_juros_moratorios=publicacao_data.get('valor_juros_moratorios'),
+                    honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios'),
+                    reu='Instituto Nacional do Seguro Social - INSS'
+                )
+                
+                # Salvar no banco
+                publicacao_salva = repository.create(publicacao)
+                publicacoes_salvas.append(publicacao_salva)
+                scraper.log(f"✅ Processo {numero_processo} salvo com sucesso")
+                
+            except Exception as e:
+                scraper.log(f"❌ Erro ao salvar processo: {e}")
+                continue
+        
+        scraper.log(f"🎉 Scraping finalizado! {len(publicacoes)} extraídas, {len(publicacoes_salvas)} salvas no BD")
+        
+    except Exception as e:
+        scraper.log(f"❌ Erro fatal no scraping: {e}")
+    finally:
+        if scraper:
+            scraper.close()
 
 @selenium_visual_ns.route('/screenshot')
 class VisualScreenshot(Resource):
@@ -1770,14 +1934,6 @@ class VisualScreenshot(Resource):
                 'timestamp': datetime.now().strftime('%H:%M:%S')
             }
 
-@selenium_visual_ns.route('/status')
-class VisualStatus(Resource):
-    @selenium_visual_ns.doc('visual_status')
-    def get(self):
-        """Status do scraping visual"""
-        global scraping_status
-        return scraping_status
-
 @selenium_visual_ns.route('/stop')
 class StopVisualScraping(Resource):
     @selenium_visual_ns.doc('stop_visual_scraping')
@@ -1793,187 +1949,6 @@ class StopVisualScraping(Resource):
         cleanup_global_scraper()
         
         return {'success': True, 'message': 'Scraping visual parado'}
-
-def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
-    """Thread que executa o scraping visual com persistência no banco"""
-    global scraping_status, global_scraper
-    
-    scraping_status['active'] = True
-    scraping_status['step'] = 'Inicializando Chrome...'
-    scraping_status['progress'] = 5
-    
-    publicacoes_extraidas = []
-    publicacoes_salvas = []
-    
-    try:
-        # Limpar scraper anterior se existir
-        cleanup_global_scraper()
-        
-        # Criar novo scraper
-        scraper = get_or_create_scraper()
-        
-        if scraper is None:
-            raise Exception("Não foi possível inicializar o Chrome")
-        
-        try:
-            scraping_status['step'] = 'Executando scraping completo...'
-            scraping_status['progress'] = 25
-            
-            # Executar o scraping debug para extração
-            publicacoes_extraidas = scraper.extrair_publicacoes_debug(data_inicio, data_fim, pause_between_steps=False)
-            
-            scraping_status['step'] = f'📊 Dados extraídos: {len(publicacoes_extraidas)} publicações'
-            scraping_status['progress'] = 60
-            
-            # Salvar no banco usando o use case
-            if publicacoes_extraidas:
-                try:
-                    from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
-                    from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
-                    from app.infrastructure.scraping.dje_scraper import DJEScraper
-                    
-                    scraping_status['step'] = '💾 Salvando no banco de dados...'
-                    scraping_status['progress'] = 80
-                    
-                    # Usar o use case para salvar (simular dados já extraídos)
-                    repository = SQLAlchemyPublicacaoRepository()
-                    
-                    for publicacao_data in publicacoes_extraidas:
-                        try:
-                            print(f"🔍 Processando publicação: {publicacao_data.get('numero_processo', 'N/A')}")
-                            print(f"   📅 Data disponibilização: {publicacao_data.get('data_disponibilizacao')}")
-                            print(f"   👤 Autores: {publicacao_data.get('autores', 'N/A')[:50]}...")
-                            
-                            # DADOS ROBUSTOS - corrigir campos None/vazios
-                            numero_processo = publicacao_data.get('numero_processo')
-                            if not numero_processo or numero_processo == 'Não identificado':
-                                print(f"   ⚠️ Número do processo inválido, pulando")
-                                continue
-                                
-                            # Data - usar data atual se None
-                            data_disponibilizacao = publicacao_data.get('data_disponibilizacao')
-                            if not data_disponibilizacao:
-                                data_disponibilizacao = datetime.now()
-                                print(f"   📅 Data None, usando data atual: {data_disponibilizacao}")
-                                
-                            # Campos texto - usar valores padrão se vazios
-                            autores = publicacao_data.get('autores') or 'Autor não identificado'
-                            advogados = publicacao_data.get('advogados') or 'Advogado não identificado'
-                            conteudo_completo = publicacao_data.get('conteudo_completo') or 'Conteúdo não extraído'
-                            
-                            # Garantir que não são "Não identificado"
-                            if autores == 'Não identificado':
-                                autores = 'Autor não identificado'
-                            if advogados == 'Não identificado':
-                                advogados = 'Advogado não identificado'
-                                
-                            print(f"   📋 Dados processados:")
-                            print(f"      Processo: {numero_processo}")
-                            print(f"      Data: {data_disponibilizacao}")
-                            print(f"      Autores: {autores[:30]}...")
-                            print(f"      Advogados: {advogados[:30]}...")
-                                
-                            # Verificar se já existe
-                            publicacao_existente = repository.find_by_numero_processo(numero_processo)
-                            
-                            if not publicacao_existente:
-                                print(f"   🆕 Publicação nova, criando entidade...")
-                                
-                                from app.domain.entities.publicacao import Publicacao
-                                
-                                try:
-                                    publicacao = Publicacao(
-                                        numero_processo=numero_processo,
-                                        data_disponibilizacao=data_disponibilizacao,
-                                        autores=autores,
-                                        advogados=advogados,
-                                        conteudo_completo=conteudo_completo,
-                                        valor_principal_bruto=publicacao_data.get('valor_principal_bruto'),
-                                        valor_principal_liquido=publicacao_data.get('valor_principal_liquido'),
-                                        valor_juros_moratorios=publicacao_data.get('valor_juros_moratorios'),
-                                        honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios'),
-                                        reu="Instituto Nacional do Seguro Social - INSS"
-                                    )
-                                    
-                                    print(f"   ✅ Entidade criada, salvando no banco...")
-                                    publicacao_salva = repository.create(publicacao)
-                                    publicacoes_salvas.append(publicacao_salva)
-                                    print(f"   🎉 Publicação salva com ID: {publicacao_salva.id}")
-                                    
-                                except Exception as entity_error:
-                                    print(f"   ❌ Erro ao criar/salvar entidade: {entity_error}")
-                                    print(f"   🔧 Tentando com dados mínimos...")
-                                    
-                                    # FALLBACK: tentar com dados mínimos obrigatórios
-                                    try:
-                                        publicacao_simples = Publicacao(
-                                            numero_processo=numero_processo,
-                                            data_disponibilizacao=datetime.now(),
-                                            autores="Autor extraído por scraping",
-                                            advogados="Advogado extraído por scraping", 
-                                            conteudo_completo=f"Publicação RPV - Processo: {numero_processo}",
-                                            reu="Instituto Nacional do Seguro Social - INSS"
-                                        )
-                                        
-                                        publicacao_salva = repository.create(publicacao_simples)
-                                        publicacoes_salvas.append(publicacao_salva)
-                                        print(f"   🎉 Publicação simples salva com ID: {publicacao_salva.id}")
-                                        
-                                    except Exception as fallback_error:
-                                        print(f"   ❌ Fallback também falhou: {fallback_error}")
-                                        continue
-                                    
-                            else:
-                                print(f"   ⏭️ Publicação já existe no banco: {numero_processo}")
-                                
-                        except Exception as e:
-                            print(f"❌ Erro geral ao processar publicação {publicacao_data.get('numero_processo', 'N/A')}: {e}")
-                            continue
-                    
-                    scraping_status['step'] = f'✅ Concluído! {len(publicacoes_extraidas)} extraídas, {len(publicacoes_salvas)} salvas no BD'
-                    scraping_status['progress'] = 100
-                    
-                except Exception as db_error:
-                    print(f"❌ Erro no banco de dados: {db_error}")
-                    scraping_status['step'] = f'⚠️ Extraídas: {len(publicacoes_extraidas)}, Erro no BD: {str(db_error)}'
-                    scraping_status['progress'] = 90
-            else:
-                scraping_status['step'] = '📭 Nenhuma publicação encontrada para os critérios'
-                scraping_status['progress'] = 100
-            
-            # Aguardar antes de finalizar (mantém o scraper ativo para screenshots)
-            time.sleep(10)
-            
-        except Exception as e:
-            scraping_status['step'] = f'❌ Erro: {str(e)}'
-            scraping_status['progress'] = 0
-            print(f"❌ Erro durante scraping: {e}")
-            
-    except Exception as e:
-        scraping_status['step'] = f'❌ Erro: {str(e)}'
-        scraping_status['progress'] = 0
-        cleanup_global_scraper()
-        print(f"❌ Erro crítico: {e}")
-    
-    finally:
-        # Log do resultado final
-        print(f"🏁 Scraping finalizado:")
-        print(f"   📊 Publicações extraídas: {len(publicacoes_extraidas)}")
-        print(f"   💾 Publicações salvas: {len(publicacoes_salvas)}")
-        
-        if publicacoes_extraidas:
-            print("📋 Resumo das publicações extraídas:")
-            for i, pub in enumerate(publicacoes_extraidas[:3], 1):  # Mostrar apenas as 3 primeiras
-                print(f"   {i}. Processo: {pub.get('numero_processo', 'N/A')}")
-                print(f"      Data: {pub.get('data_disponibilizacao', 'N/A')}")
-                print(f"      Autores: {pub.get('autores', 'N/A')[:50]}...")
-                
-        # Resetar status após 60 segundos, mas manter scraper ativo
-        time.sleep(60)
-        if scraping_status['active']:
-            scraping_status['active'] = False
-            scraping_status['step'] = 'Finalizado automaticamente'
-            scraping_status['progress'] = 0
 
 @selenium_visual_ns.route('/ensure-xvfb')
 class EnsureXvfb(Resource):

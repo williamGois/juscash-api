@@ -1,24 +1,20 @@
 #!/bin/bash
 
-# Script de inicialização para o container da API JusCash
-
 set -e
 
 echo "🚀 Iniciando JusCash API..."
 
-# Verificar se estamos em produção
 if [ "$ENVIRONMENT" = "production" ]; then
     echo "📦 Ambiente: PRODUÇÃO"
 else
     echo "📦 Ambiente: DESENVOLVIMENTO"
 fi
 
-# Aguardar serviços ficarem prontos
 echo "🔄 Aguardando serviços..."
 
 max_retries=30
 count=0
-until nc -z db 5432; do
+until curl -s db:5432 > /dev/null 2>&1; do
     count=$((count+1))
     if [ $count -eq $max_retries ]; then
         echo "❌ Postgres não disponível após $max_retries tentativas. Abortando."
@@ -30,7 +26,7 @@ done
 echo "✅ PostgreSQL pronto"
 
 count=0
-until nc -z redis 6379; do
+until curl -s redis:6379 > /dev/null 2>&1; do
     count=$((count+1))
     if [ $count -eq $max_retries ]; then
         echo "❌ Redis não disponível após $max_retries tentativas. Abortando."
@@ -41,13 +37,11 @@ until nc -z redis 6379; do
 done
 echo "✅ Redis pronto"
 
-# Função para verificar se Xvfb está rodando
 check_xvfb() {
     pgrep Xvfb > /dev/null
     return $?
 }
 
-# Função para iniciar Xvfb
 start_xvfb() {
     echo "🖥️ Iniciando Xvfb..."
     Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
@@ -62,15 +56,12 @@ start_xvfb() {
     fi
 }
 
-# Função para configurar ChromeDriver
 setup_chromedriver() {
     echo "🔧 Aplicando fix ChromeDriver..."
     
-    # Encontrar ChromeDriver mais recente
     CHROME_DRIVER=$(find /root/.wdm/drivers/chromedriver -type f -name "chromedriver" | sort -r | head -1)
     
     if [ -n "$CHROME_DRIVER" ]; then
-        # Copiar para /usr/local/bin
         cp "$CHROME_DRIVER" /usr/local/bin/chromedriver
         chmod +x /usr/local/bin/chromedriver
         echo "✅ ChromeDriver copiado e configurado com sucesso!"
@@ -78,7 +69,6 @@ setup_chromedriver() {
         echo "⚠️ ChromeDriver não encontrado, tentando download..."
         python3 -c "from webdriver_manager.chrome import ChromeDriverManager; ChromeDriverManager().install()"
         
-        # Tentar novamente encontrar ChromeDriver
         CHROME_DRIVER=$(find /root/.wdm/drivers/chromedriver -type f -name "chromedriver" | sort -r | head -1)
         if [ -n "$CHROME_DRIVER" ]; then
             cp "$CHROME_DRIVER" /usr/local/bin/chromedriver
@@ -91,10 +81,8 @@ setup_chromedriver() {
     fi
 }
 
-# Verificar e configurar display
 echo "🔍 Verificando prerequisitos..."
 
-# Verificar se DISPLAY está configurado
 if [ -z "$DISPLAY" ]; then
     export DISPLAY=:99
     echo "🖥️ Display configurado: $DISPLAY"
@@ -102,7 +90,6 @@ else
     echo "🖥️ Display já configurado: $DISPLAY"
 fi
 
-# Verificar e iniciar Xvfb se necessário
 if ! check_xvfb; then
     echo "⚠️ Xvfb não está rodando, tentando iniciar..."
     if ! start_xvfb; then
@@ -118,10 +105,8 @@ else
     echo "✅ Xvfb já está rodando"
 fi
 
-# Configurar ChromeDriver
 setup_chromedriver
 
-# Verificar Google Chrome
 if command -v google-chrome &> /dev/null; then
     echo "✅ Google Chrome: $(google-chrome --version)"
 else
@@ -129,15 +114,11 @@ else
     exit 1
 fi
 
-# Limpar cache de webdriver-manager antigo
 rm -rf /home/.wdm /app/.wdm 2>/dev/null || true
-
-# Configurar permissões
 chmod 755 /usr/local/bin/chromedriver 2>/dev/null || true
 
 echo "🚀 Iniciando aplicação..."
 
-# Executar migrações
 echo "📊 Executando migrações do banco..."
 flask db upgrade
 

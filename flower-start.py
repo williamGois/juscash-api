@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import redis
+import subprocess
 
 def wait_for_redis(redis_url, max_attempts=5):
     """Aguarda Redis estar disponível"""
@@ -28,7 +29,7 @@ def main():
     if not wait_for_redis(redis_url):
         sys.exit(1)
     
-    print("📱 Carregando configuração do Celery...")
+    print("📱 Verificando Celery...")
     try:
         from celery_worker import celery
         print("✅ Celery configurado!")
@@ -38,20 +39,21 @@ def main():
     
     print("🚀 Iniciando Flower na porta 5555...")
     
-    from flower.command import FlowerCommand
-    flower_command = FlowerCommand()
-    
-    args = [
-        '--broker=' + redis_url,
+    cmd = [
+        'celery', '-A', 'celery_worker.celery', 'flower',
         '--address=0.0.0.0',
         '--port=5555'
     ]
     
     basic_auth = os.getenv('FLOWER_BASIC_AUTH')
     if basic_auth:
-        args.append(f'--basic_auth={basic_auth}')
+        cmd.append(f'--basic_auth={basic_auth}')
     
-    flower_command.run_from_argv(['flower'] + args)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erro ao executar Flower: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main() 
