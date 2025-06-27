@@ -69,23 +69,24 @@ class DJEScraper:
                 logging.info(f"Tentativa {attempt + 1} de inicializar Chrome driver...")
                 
                 # Tenta usar o webdriver-manager como primeira opção
-                    try:
-                        service = Service(ChromeDriverManager().install())
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        logging.info("✅ Driver inicializado com webdriver-manager")
-                        break
-                    except Exception as e:
+                try:
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    logging.info("✅ Driver inicializado com webdriver-manager")
+                    break
+                except Exception as e:
                     logging.warning(f"Webdriver-manager falhou, tentando com o Chrome do sistema: {e}")
-                        self.driver = webdriver.Chrome(options=chrome_options)
-                        logging.info("✅ Driver inicializado com Chrome do sistema")
-                        break
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                    logging.info("✅ Driver inicializado com Chrome do sistema")
+                    break
             
             except Exception as e:
                 logging.error(f"Erro na tentativa {attempt + 1}: {e}")
                 if self.driver:
                     try:
                         self.driver.quit()
-                    except: pass
+                    except: 
+                        pass
                     self.driver = None
                 
                 if attempt == self.max_retries - 1:
@@ -109,12 +110,13 @@ class DJEScraper:
             try:
                 if self.driver:
                     self.driver.quit()
-            except: pass
+            except: 
+                pass
             self._initialize_driver()
             return self.driver is not None
     
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
-                if not self._restart_driver_if_needed():
+        if not self._restart_driver_if_needed():
             logging.error("Driver não está operacional. Abortando extração.")
             return []
 
@@ -139,14 +141,14 @@ class DJEScraper:
                 logging.info(f"Processando página de resultados {page_num}...")
                 try:
                     self.wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
-                    time.sleep(2) # Aguarda o conteúdo carregar via JS
+                    time.sleep(2)  # Aguarda o conteúdo carregar via JS
                     
                     soup = BeautifulSoup(self.driver.page_source, 'html.parser')
                     publicacoes_elements = soup.select('div#divResultadosInferior table tr.fundocinza1')
                     
                     if not publicacoes_elements and page_num == 1:
                         logging.info("Nenhuma publicação encontrada para os critérios definidos.")
-                    break
+                        break
             
                     for element in publicacoes_elements:
                         publicacao_data = self._extrair_dados_publicacao(element)
@@ -163,7 +165,7 @@ class DJEScraper:
                         logging.info("Fim da paginação. Não há mais link 'Próximo>'.")
                         break
                         
-            except Exception as e:
+                except Exception as e:
                     logging.error(f"Erro ao processar página {page_num}: {e}")
                     break
             
@@ -173,7 +175,7 @@ class DJEScraper:
             logging.error(f"Erro fatal durante a extração: {e}")
             return []
     
-    def _extrair_dados_publicacao(self, element: BeautifulSoup) -> Dict[str, Any]:
+    def _extrair_dados_publicacao(self, element) -> Dict[str, Any]:
         try:
             texto_completo_element = element.select_one('tr.ementaClass2 td')
             if not texto_completo_element:
