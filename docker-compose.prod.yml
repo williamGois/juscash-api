@@ -74,7 +74,6 @@ services:
     image: juscash_web:prod
     container_name: juscash_web_prod
     restart: always
-    entrypoint: ["./docker-entrypoint.sh"]
     command: ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "600", "--workers", "4", "--threads", "2", "--worker-class", "gthread", "--keep-alive", "120", "--graceful-timeout", "300", "run:app"]
     volumes:
       - ./VERSION:/app/VERSION:ro
@@ -133,7 +132,6 @@ services:
     image: juscash_web:prod
     container_name: juscash_worker_prod
     restart: always
-    entrypoint: ["./docker-entrypoint.sh"]
     command: ["celery", "-A", "celery_worker.celery", "worker", "-B", "--loglevel=info", "--concurrency=1"]
     volumes:
       - .:/app
