@@ -17,6 +17,7 @@ import tempfile
 import uuid
 import threading
 import subprocess
+import pdfplumber
 
 class DJEScraperDebug:
     """
@@ -487,54 +488,141 @@ class DJEScraperDebug:
                             print(f"      🔍 Processando publicação {i}/{len(publicacao_elements)} da página {page_num}...")
                             
                             try:
-                                # Obter o onclick para debug
-                                onclick_attr = element.get_attribute('onclick')
-                                print(f"        📋 Onclick: {onclick_attr}")
+                                # Clicar no link "Visualizar" para abrir o PDF
+                                print(f"        🖱️ Clicando em 'Visualizar' do item {i}...")
                                 
-                                # Extrair URL do onclick
-                                match = re.search(r"popup\('([^']+)'\)", onclick_attr or '')
-                                if match:
-                                    relative_url = match.group(1)
-                                    full_url = f"https://dje.tjsp.jus.br{relative_url}"
-                                    print(f"        🌐 URL extraída: {full_url}")
+                                # Salvar a janela atual
+                                janela_principal = driver.current_window_handle
+                                
+                                # Clicar no elemento (que vai abrir nova janela/aba)
+                                driver.execute_script("arguments[0].click();", element)
+                                time.sleep(3)
+                                
+                                # Verificar se nova janela foi aberta
+                                todas_janelas = driver.window_handles
+                                if len(todas_janelas) > 1:
+                                    # Mudar para a nova janela
+                                    for janela in todas_janelas:
+                                        if janela != janela_principal:
+                                            driver.switch_to.window(janela)
+                                            break
                                     
-                                    # Abrir a publicação em nova aba/janela
-                                    driver.execute_script(f"window.open('{full_url}', '_blank');")
+                                    print(f"        📋 Nova janela aberta: {driver.current_url}")
+                                    time.sleep(5)  # Aguardar carregamento completo
                                     
-                                    # Mudar para a nova aba
-                                    driver.switch_to.window(driver.window_handles[-1])
-                                    time.sleep(3)
-                                    
-                                    # Extrair dados detalhados desta página
-                                    publicacao_data = self._extrair_dados_pagina_individual(driver)
-                                    
-                                    if publicacao_data:
-                                        all_publicacoes.append(publicacao_data)
-                                        print(f"        ✅ Dados extraídos: {publicacao_data.get('numero_processo', 'N/A')}")
+                                    # Procurar pelo frame que contém o PDF
+                                    try:
+                                        # Verificar se há frames na página
+                                        frames = driver.find_elements(By.TAG_NAME, "frame")
+                                        iframe_elements = driver.find_elements(By.TAG_NAME, "iframe")
                                         
-                                        # Log do JSON extraído (para debug)
-                                        print(f"        📋 JSON: {publicacao_data}")
-                                    else:
-                                        print(f"        ⚠️ Não foi possível extrair dados desta publicação")
+                                        pdf_url = None
+                                        
+                                        # Tentar encontrar URL do PDF no HTML
+                                        page_source = driver.page_source
+                                        
+                                        # Procurar por URLs de PDF no código fonte
+                                        import re
+                                        pdf_patterns = [
+                                            r'src="([^"]*\.pdf[^"]*)"',
+                                            r"src='([^']*\.pdf[^']*)'",
+                                            r'href="([^"]*\.pdf[^"]*)"',
+                                            r"href='([^']*\.pdf[^']*)'",
+                                            r'(https?://[^"\s]*\.pdf[^"\s]*)',
+                                            r'/cdje/getPaginaDoDiario\.do[^"]*'
+                                        ]
+                                        
+                                        for pattern in pdf_patterns:
+                                            matches = re.findall(pattern, page_source, re.IGNORECASE)
+                                            if matches:
+                                                for match in matches:
+                                                    if 'getPaginaDoDiario.do' in match or '.pdf' in match.lower():
+                                                        if not match.startswith('http'):
+                                                            if match.startswith('/'):
+                                                                pdf_url = f"https://dje.tjsp.jus.br{match}"
+                                                            else:
+                                                                pdf_url = f"https://dje.tjsp.jus.br/{match}"
+                                                        else:
+                                                            pdf_url = match
+                                                        print(f"        📄 PDF URL encontrada: {pdf_url}")
+                                                        break
+                                            if pdf_url:
+                                                break
+                                        
+                                        # Se não encontrou URL direta, tentar navegar pelos frames
+                                        if not pdf_url and frames:
+                                            print(f"        🔍 Verificando {len(frames)} frames...")
+                                            for frame_idx, frame in enumerate(frames):
+                                                try:
+                                                    driver.switch_to.frame(frame)
+                                                    frame_source = driver.page_source
+                                                    
+                                                    # Procurar PDF no frame
+                                                    for pattern in pdf_patterns:
+                                                        matches = re.findall(pattern, frame_source, re.IGNORECASE)
+                                                        if matches:
+                                                            for match in matches:
+                                                                if 'getPaginaDoDiario.do' in match or '.pdf' in match.lower():
+                                                                    if not match.startswith('http'):
+                                                                        pdf_url = f"https://dje.tjsp.jus.br{match}"
+                                                                    else:
+                                                                        pdf_url = match
+                                                                    print(f"        📄 PDF encontrado no frame {frame_idx}: {pdf_url}")
+                                                                    break
+                                                        if pdf_url:
+                                                            break
+                                                    
+                                                    driver.switch_to.default_content()
+                                                    if pdf_url:
+                                                        break
+                                                except Exception as e:
+                                                    print(f"        ⚠️ Erro ao acessar frame {frame_idx}: {e}")
+                                                    driver.switch_to.default_content()
+                                        
+                                        # Extrair dados usando PDF ou HTML
+                                        if pdf_url:
+                                            print(f"        📥 Baixando e processando PDF: {pdf_url}")
+                                            texto_pdf = self._download_pdf_text(pdf_url)
+                                            if texto_pdf:
+                                                publicacao_data = self._extrair_dados_do_texto(texto_pdf, pdf_url)
+                                                print(f"        ✅ Dados extraídos do PDF")
+                                            else:
+                                                print(f"        ⚠️ Não foi possível extrair texto do PDF, usando HTML")
+                                                publicacao_data = self._extrair_dados_do_texto(page_source, driver.current_url)
+                                        else:
+                                            print(f"        ⚠️ PDF não encontrado, usando HTML da página")
+                                            publicacao_data = self._extrair_dados_do_texto(page_source, driver.current_url)
+                                        
+                                        if publicacao_data:
+                                            all_publicacoes.append(publicacao_data)
+                                            print(f"        ✅ Publicação processada: {publicacao_data.get('numero_processo', 'N/A')}")
+                                            print(f"        📋 JSON: {publicacao_data}")
+                                        else:
+                                            print(f"        ⚠️ Não foi possível extrair dados desta publicação")
+                                            
+                                    except Exception as e:
+                                        print(f"        ❌ Erro ao processar PDF/conteúdo: {e}")
                                     
-                                    # Fechar a aba atual e voltar para a original
+                                    # Fechar a janela atual e voltar para a principal
                                     driver.close()
-                                    driver.switch_to.window(driver.window_handles[0])
-                                    time.sleep(1)
+                                    driver.switch_to.window(janela_principal)
+                                    time.sleep(2)
                                     
                                 else:
-                                    print(f"        ⚠️ Não foi possível extrair URL do onclick do elemento {i}")
-                                    continue
-                            
+                                    print(f"        ⚠️ Nova janela não foi aberta para item {i}")
+                                    
                             except Exception as e:
                                 print(f"        ❌ Erro ao processar publicação {i}: {e}")
-                                # Certificar que estamos na aba correta
+                                # Garantir que estamos na janela correta
                                 try:
-                                    if len(driver.window_handles) > 1:
-                                        driver.close()
-                                        driver.switch_to.window(driver.window_handles[0])
-                                except:
-                                    pass
+                                    todas_janelas = driver.window_handles
+                                    if len(todas_janelas) > 1:
+                                        for janela in todas_janelas[1:]:
+                                            driver.switch_to.window(janela)
+                                            driver.close()
+                                        driver.switch_to.window(todas_janelas[0])
+                                except Exception as cleanup_error:
+                                    print(f"        ⚠️ Erro na limpeza: {cleanup_error}")
                                 continue
                     
                     # Tentar ir para a próxima página
@@ -602,76 +690,38 @@ class DJEScraperDebug:
             print(f"❌ Erro fatal durante a extração: {e}")
             return []
 
-    def _extrair_dados_pagina_individual(self, driver) -> Dict[str, Any]:
-        """Extrai dados detalhados de uma página individual de publicação"""
+    def _extrair_dados_do_texto(self, texto: str, url_origem: str) -> Dict[str, Any]:
+        """Extrai dados estruturados do texto (PDF ou HTML)"""
         try:
-            # Aguardar a página carregar
-            time.sleep(3)
-            
-            # Obter HTML da página
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
-            
-            # Extrair conteúdo completo da publicação
-            conteudo_completo = ""
-            
-            # Tentar diferentes seletores para encontrar o conteúdo
-            content_selectors = [
-                'div.ementaClass2',
-                'div.ementaClass', 
-                'td.ementaClass2',
-                'td.ementaClass',
-                '.fundocinza1',
-                'tbody tr td',
-                'frame[name="bottomFrame"]',  # Para capturar conteúdo de frames
-                'body'
-            ]
-            
-            for selector in content_selectors:
-                elements = soup.select(selector)
-                if elements:
-                    conteudo_completo = ' '.join([el.get_text(strip=True) for el in elements if el.get_text(strip=True)])
-                    if conteudo_completo and len(conteudo_completo) > 100:  # Só aceitar se houver conteúdo substancial
-                        break
-            
-            # Se não encontrou com seletores específicos, pegar todo o texto da página
-            if not conteudo_completo or len(conteudo_completo) < 100:
-                body = soup.find('body')
-                if body:
-                    conteudo_completo = body.get_text(strip=True)
-            
-            if not conteudo_completo or len(conteudo_completo) < 50:
-                print(f"        ⚠️ Conteúdo insuficiente extraído da página")
-                return None
-            
             # Extrair número do processo com padrões mais específicos
-            numero_processo = self._extrair_numero_processo(conteudo_completo)
+            numero_processo = self._extrair_numero_processo(texto)
             
-            # Extrair data de disponibilização (procurar por padrões de data)
-            data_disponibilizacao = self._extrair_data_disponibilizacao(conteudo_completo)
+            # Extrair data de disponibilização
+            data_disponibilizacao = self._extrair_data_disponibilizacao(texto)
             
             # Extrair informações de RPV específicas
-            autor_info = self._extrair_autor_rpv(conteudo_completo)
-            advogado_info = self._extrair_advogado_rpv(conteudo_completo) 
+            autor_info = self._extrair_autor_rpv(texto)
+            advogado_info = self._extrair_advogado_rpv(texto) 
             
             # Extrair valores monetários específicos para RPV
-            valores = self._extrair_valores_rpv(conteudo_completo)
+            valores = self._extrair_valores_rpv(texto)
             
             return {
                 'numero_processo': numero_processo or 'Não identificado',
                 'data_disponibilizacao': data_disponibilizacao,
                 'autores': autor_info or 'Não identificado', 
                 'advogados': advogado_info or 'Não identificado',
-                'conteudo_completo': conteudo_completo,
+                'conteudo_completo': texto[:2000] + '...' if len(texto) > 2000 else texto,  # Limitar tamanho
                 'valor_principal_bruto': valores.get('bruto'),
                 'valor_principal_liquido': valores.get('liquido'),
                 'valor_juros_moratorios': valores.get('juros'),
                 'honorarios_advocaticios': valores.get('honorarios'),
                 'reu': 'Instituto Nacional do Seguro Social - INSS',  # Sempre INSS conforme solicitado
-                'url_origem': driver.current_url
+                'url_origem': url_origem
             }
             
         except Exception as e:
-            print(f"        ❌ Erro ao extrair dados da página individual: {e}")
+            print(f"❌ Erro ao extrair dados do texto: {e}")
             return None
 
     def _extrair_numero_processo(self, texto: str) -> str:
@@ -1043,4 +1093,54 @@ class DJEScraperDebug:
                 
         except Exception as e:
             print(f"    ❌ Erro geral no click: {e}")
-            raise 
+            raise
+
+    def _find_pdf_url(self, html: str) -> str:
+        import re
+        match = re.search(r"https?://[^"]+\.pdf", html, re.IGNORECASE)
+        if match:
+            return match.group(0)
+        return None
+
+    def _download_pdf_text(self, pdf_url: str) -> str:
+        try:
+            r = requests.get(pdf_url, timeout=30)
+            if r.status_code == 200:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(r.content)
+                    tmp_path = tmp.name
+                text = ""
+                with pdfplumber.open(tmp_path) as pdf:
+                    pages = [p.extract_text() or "" for p in pdf.pages]
+                    text = "\n".join(pages)
+                os.unlink(tmp_path)
+                return text
+        except Exception as e:
+            print(f"Erro ao baixar PDF {e}")
+        return ""
+
+    def _extrair_dados_pagina_individual(self, driver) -> Dict[str, Any]:
+        """Extrai dados detalhados de uma página individual de publicação"""
+        try:
+            # Aguardar a página carregar
+            time.sleep(3)
+            
+            html = driver.page_source
+            pdf_url = self._find_pdf_url(html)
+            
+            # Se encontrou PDF, baixar e extrair texto
+            if pdf_url:
+                print(f"        📥 Baixando PDF: {pdf_url}")
+                texto_pdf = self._download_pdf_text(pdf_url)
+                if texto_pdf:
+                    return self._extrair_dados_do_texto(texto_pdf, driver.current_url)
+                else:
+                    print(f"        ⚠️ Falha ao extrair texto do PDF, usando HTML")
+            
+            # Se não há PDF ou falhou, usar HTML
+            print(f"        📄 Extraindo dados do HTML")
+            return self._extrair_dados_do_texto(html, driver.current_url)
+            
+        except Exception as e:
+            print(f"        ❌ Erro ao extrair dados da página individual: {e}")
+            return None 
