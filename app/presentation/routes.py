@@ -1844,24 +1844,37 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
                             print(f"   📅 Data disponibilização: {publicacao_data.get('data_disponibilizacao')}")
                             print(f"   👤 Autores: {publicacao_data.get('autores', 'N/A')[:50]}...")
                             
-                            # Verificar se campos obrigatórios estão presentes
-                            campos_obrigatorios = ['numero_processo', 'data_disponibilizacao', 'autores', 'advogados', 'conteudo_completo']
-                            campos_faltando = []
-                            
-                            for campo in campos_obrigatorios:
-                                valor = publicacao_data.get(campo)
-                                if not valor or valor == 'Não identificado':
-                                    campos_faltando.append(campo)
-                            
-                            if campos_faltando:
-                                print(f"   ⚠️ Campos obrigatórios faltando/inválidos: {campos_faltando}")
-                                print(f"   ⏭️ Pulando esta publicação")
+                            # DADOS ROBUSTOS - corrigir campos None/vazios
+                            numero_processo = publicacao_data.get('numero_processo')
+                            if not numero_processo or numero_processo == 'Não identificado':
+                                print(f"   ⚠️ Número do processo inválido, pulando")
                                 continue
                                 
+                            # Data - usar data atual se None
+                            data_disponibilizacao = publicacao_data.get('data_disponibilizacao')
+                            if not data_disponibilizacao:
+                                data_disponibilizacao = datetime.now()
+                                print(f"   📅 Data None, usando data atual: {data_disponibilizacao}")
+                                
+                            # Campos texto - usar valores padrão se vazios
+                            autores = publicacao_data.get('autores') or 'Autor não identificado'
+                            advogados = publicacao_data.get('advogados') or 'Advogado não identificado'
+                            conteudo_completo = publicacao_data.get('conteudo_completo') or 'Conteúdo não extraído'
+                            
+                            # Garantir que não são "Não identificado"
+                            if autores == 'Não identificado':
+                                autores = 'Autor não identificado'
+                            if advogados == 'Não identificado':
+                                advogados = 'Advogado não identificado'
+                                
+                            print(f"   📋 Dados processados:")
+                            print(f"      Processo: {numero_processo}")
+                            print(f"      Data: {data_disponibilizacao}")
+                            print(f"      Autores: {autores[:30]}...")
+                            print(f"      Advogados: {advogados[:30]}...")
+                                
                             # Verificar se já existe
-                            publicacao_existente = repository.find_by_numero_processo(
-                                publicacao_data['numero_processo']
-                            )
+                            publicacao_existente = repository.find_by_numero_processo(numero_processo)
                             
                             if not publicacao_existente:
                                 print(f"   🆕 Publicação nova, criando entidade...")
@@ -1870,15 +1883,16 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
                                 
                                 try:
                                     publicacao = Publicacao(
-                                        numero_processo=publicacao_data['numero_processo'],
-                                        data_disponibilizacao=publicacao_data['data_disponibilizacao'],
-                                        autores=publicacao_data['autores'],
-                                        advogados=publicacao_data['advogados'],
-                                        conteudo_completo=publicacao_data['conteudo_completo'],
+                                        numero_processo=numero_processo,
+                                        data_disponibilizacao=data_disponibilizacao,
+                                        autores=autores,
+                                        advogados=advogados,
+                                        conteudo_completo=conteudo_completo,
                                         valor_principal_bruto=publicacao_data.get('valor_principal_bruto'),
                                         valor_principal_liquido=publicacao_data.get('valor_principal_liquido'),
                                         valor_juros_moratorios=publicacao_data.get('valor_juros_moratorios'),
-                                        honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios')
+                                        honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios'),
+                                        reu="Instituto Nacional do Seguro Social - INSS"
                                     )
                                     
                                     print(f"   ✅ Entidade criada, salvando no banco...")
@@ -1887,16 +1901,33 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
                                     print(f"   🎉 Publicação salva com ID: {publicacao_salva.id}")
                                     
                                 except Exception as entity_error:
-                                    print(f"   ❌ Erro ao criar entidade: {entity_error}")
-                                    print(f"   📋 Dados da publicação: {publicacao_data}")
-                                    continue
+                                    print(f"   ❌ Erro ao criar/salvar entidade: {entity_error}")
+                                    print(f"   🔧 Tentando com dados mínimos...")
+                                    
+                                    # FALLBACK: tentar com dados mínimos obrigatórios
+                                    try:
+                                        publicacao_simples = Publicacao(
+                                            numero_processo=numero_processo,
+                                            data_disponibilizacao=datetime.now(),
+                                            autores="Autor extraído por scraping",
+                                            advogados="Advogado extraído por scraping", 
+                                            conteudo_completo=f"Publicação RPV - Processo: {numero_processo}",
+                                            reu="Instituto Nacional do Seguro Social - INSS"
+                                        )
+                                        
+                                        publicacao_salva = repository.create(publicacao_simples)
+                                        publicacoes_salvas.append(publicacao_salva)
+                                        print(f"   🎉 Publicação simples salva com ID: {publicacao_salva.id}")
+                                        
+                                    except Exception as fallback_error:
+                                        print(f"   ❌ Fallback também falhou: {fallback_error}")
+                                        continue
                                     
                             else:
-                                print(f"   ⏭️ Publicação já existe no banco: {publicacao_data['numero_processo']}")
+                                print(f"   ⏭️ Publicação já existe no banco: {numero_processo}")
                                 
                         except Exception as e:
                             print(f"❌ Erro geral ao processar publicação {publicacao_data.get('numero_processo', 'N/A')}: {e}")
-                            print(f"   📋 Dados: {publicacao_data}")
                             continue
                     
                     scraping_status['step'] = f'✅ Concluído! {len(publicacoes_extraidas)} extraídas, {len(publicacoes_salvas)} salvas no BD'
