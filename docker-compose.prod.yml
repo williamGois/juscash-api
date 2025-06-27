@@ -73,6 +73,7 @@ services:
     container_name: juscash_web_prod
     restart: always
     environment:
+      - ENVIRONMENT=production
       - DATABASE_URL=${DATABASE_URL:-postgresql://juscash:juscash123_CHANGE_ME@db:5432/juscash_db}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - SECRET_KEY=${SECRET_KEY:-temp-secret-key-CHANGE-ME}

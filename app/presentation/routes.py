@@ -7,6 +7,10 @@ from app.infrastructure.scraping.dje_scraper import DJEScraper
 from app.tasks.scraping_tasks import extract_publicacoes_task
 import os
 import threading
+import subprocess
+import time
+import tempfile
+import base64
 
 def get_version():
     """Lê a versão do arquivo VERSION na raiz do projeto."""
@@ -1686,6 +1690,23 @@ class VisualScreenshot(Resource):
     @selenium_visual_ns.doc('visual_screenshot')
     def get(self):
         """Captura screenshot atual"""
+        import subprocess
+        import os
+        
+        # Verificar e garantir que Xvfb está rodando
+        try:
+            result = subprocess.run(['pgrep', '-x', 'Xvfb'], capture_output=True, text=True)
+            if result.returncode != 0:
+                print("⚠️ Xvfb não encontrado, iniciando...")
+                os.environ['DISPLAY'] = ':99'
+                subprocess.Popen([
+                    'Xvfb', ':99', 
+                    '-screen', '0', '1920x1080x24'
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(3)
+        except Exception as e:
+            print(f"⚠️ Erro ao verificar Xvfb: {e}")
+        
         try:
             scraper = get_or_create_scraper()
             
@@ -1893,6 +1914,63 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
             scraping_status['active'] = False
             scraping_status['step'] = 'Finalizado automaticamente'
             scraping_status['progress'] = 0
+
+@selenium_visual_ns.route('/ensure-xvfb')
+class EnsureXvfb(Resource):
+    @selenium_visual_ns.doc('ensure_xvfb')
+    def post(self):
+        """Garante que o Xvfb está rodando"""
+        import subprocess
+        import os
+        
+        try:
+            # Verificar se Xvfb está rodando
+            result = subprocess.run(['pgrep', '-x', 'Xvfb'], capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                # Xvfb não está rodando, vamos iniciar
+                print("⚠️ Xvfb não está rodando, iniciando...")
+                
+                # Configurar variáveis de ambiente
+                os.environ['DISPLAY'] = ':99'
+                
+                # Iniciar Xvfb
+                subprocess.Popen([
+                    'Xvfb', ':99', 
+                    '-screen', '0', '1920x1080x24'
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                import time
+                time.sleep(2)
+                
+                # Verificar novamente
+                result = subprocess.run(['pgrep', '-x', 'Xvfb'], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    return {
+                        'success': True,
+                        'message': 'Xvfb iniciado com sucesso',
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'message': 'Falha ao iniciar Xvfb',
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+            else:
+                return {
+                    'success': True,
+                    'message': 'Xvfb já está rodando',
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
 
 def register_namespaces(api):
     """Registra todos os namespaces na API"""
