@@ -18,18 +18,13 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         google-chrome-stable \
+        chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ChromeDriver manually to ensure compatibility
-RUN wget -O /tmp/chromedriver.zip "https://storage.googleapis.com/chrome-for-testing-public/131.0.6778.87/linux64/chromedriver-linux64.zip" \
-    && unzip /tmp/chromedriver.zip -d /tmp \
-    && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
-    && chmod +x /usr/local/bin/chromedriver \
-    && rm -rf /tmp/chromedriver.zip /tmp/chromedriver-linux64 \
+# Create symbolic links for chromedriver
+RUN ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver \
+    && chmod +x /usr/bin/chromedriver \
     && chromedriver --version
-
-# Create additional symbolic links
-RUN ln -sf /usr/local/bin/chromedriver /usr/bin/chromedriver
 
 # Set display environment variable for Xvfb
 ENV DISPLAY=:99
