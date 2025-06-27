@@ -1,4 +1,4 @@
-from flask import request, current_app
+from flask import request, current_app, Response
 from flask_restx import Namespace, Resource, fields
 from datetime import datetime
 from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
@@ -14,6 +14,15 @@ import base64
 import re
 import logging
 import uuid
+
+# Variáveis globais para o scraper visual
+global_scraper = None
+global_scraper_lock = threading.Lock()
+scraping_status = {
+    'active': False,
+    'step': 'Aguardando...',
+    'progress': 0
+}
 
 def get_version():
     """Lê a versão do arquivo VERSION na raiz do projeto."""
@@ -58,6 +67,8 @@ def get_version():
 
 publicacoes_ns = Namespace('publicacoes', description='Operações relacionadas às publicações do DJE')
 scraping_ns = Namespace('scraping', description='Operações de web scraping')
+simple_ns = Namespace('simple', description='Endpoints simples para testes')
+selenium_visual_ns = Namespace('selenium-visual', description='Interface visual para Selenium')
 
 publicacao_model = publicacoes_ns.model('Publicacao', {
     'id': fields.Integer(description='ID único da publicação'),
@@ -1675,6 +1686,7 @@ class SeleniumVisualStatus(Resource):
     def get(self):
         """Retorna o status atual do scraping visual"""
         try:
+            from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
             scraper = DJEScraperDebug()
             
             # Verificar se o scraper está ativo
@@ -1782,6 +1794,9 @@ class SeleniumVisualStart(Resource):
 def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
     """Thread que executa o scraping visual"""
     try:
+        from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+        from app.domain.entities.publicacao import Publicacao
+        
         # Inicializar scraper em modo visual
         scraper = DJEScraperDebug(visual_mode=True)
         scraper.log("🚀 Iniciando scraping visual...")
