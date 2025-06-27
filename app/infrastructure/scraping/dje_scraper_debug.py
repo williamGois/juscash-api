@@ -235,13 +235,13 @@ class DJEScraperDebug:
                 print(f"🌐 Chrome aberto! URL atual: {self.driver.current_url}")
 
     def extrair_publicacoes_debug(self, data_inicio: datetime, data_fim: datetime, pause_between_steps: bool = True) -> List[Dict[str, Any]]:
-        """Versão debug com pausas para visualizar cada etapa"""
+        """Versão debug com navegação completa em cada resultado e paginação"""
         driver = self.get_driver()
         if not driver:
             logging.error("❌ Driver não está operacional. Abortando extração.")
             return []
 
-        print(f"🕷️ Iniciando extração de {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+        print(f"🕷️ Iniciando extração COMPLETA de {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
         
         try:
             # Etapa 1: Acessar o site
@@ -303,110 +303,254 @@ class DJEScraperDebug:
             self._safe_click(submit_button)
 
             print("⏳ Aguardando resultados...")
-            time.sleep(8)  # Mais tempo para carregar
+            time.sleep(8)
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para processar os resultados...")
 
-            # Etapa 4: Processar resultados
-            print("📍 Etapa 4: Processando resultados...")
+            # Etapa 4: Processar TODAS as páginas de resultados
+            print("📍 Etapa 4: Processando TODAS as páginas de resultados...")
             all_publicacoes = []
+            page_num = 1
             
-            try:
-                # Aguardar div de resultados com timeout maior
-                print("  ⏳ Aguardando div de resultados...")
-                self.wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
-                time.sleep(3)
+            while True:
+                print(f"  📄 Processando página {page_num}...")
                 
-                # Verificar se há erro na página
-                page_source = driver.page_source.lower()
-                if "erro" in page_source or "error" in page_source:
-                    print("  ⚠️ Possível erro detectado na página")
-                
-                soup = BeautifulSoup(driver.page_source, 'html.parser')
-                publicacoes_elements = soup.select('div#divResultadosInferior table tr.fundocinza1')
-                
-                if not publicacoes_elements:
-                    print("  ℹ️ Nenhuma publicação encontrada para os critérios definidos.")
-                    
-                    # Debug: mostrar conteúdo da div de resultados
-                    div_resultados = soup.select_one('div#divResultadosInferior')
-                    if div_resultados:
-                        print(f"  🔍 Conteúdo da div resultados: {div_resultados.get_text()[:200]}...")
-                else:
-                    print(f"  📋 Encontradas {len(publicacoes_elements)} publicações")
-                    
-                    for i, element in enumerate(publicacoes_elements, 1):
-                        print(f"    🔍 Extraindo dados da publicação {i}/{len(publicacoes_elements)}...")
-                        try:
-                            publicacao_data = self._extrair_dados_publicacao(element)
-                            if publicacao_data:
-                                all_publicacoes.append(publicacao_data)
-                                print(f"    ✅ Processo: {publicacao_data.get('numero_processo', 'N/A')}")
-                            else:
-                                print(f"    ⚠️ Dados não extraídos para publicação {i}")
-                        except Exception as e:
-                            print(f"    ❌ Erro ao extrair publicação {i}: {e}")
-                
-            except Exception as e:
-                print(f"  ❌ Erro ao processar resultados: {e}")
-                
-                # Debug: mostrar URL atual e título
                 try:
-                    print(f"  🌐 URL atual: {driver.current_url}")
-                    print(f"  📄 Título atual: {driver.title}")
-                except:
-                    pass
+                    # Aguardar div de resultados
+                    print(f"    ⏳ Aguardando div de resultados da página {page_num}...")
+                    self.wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
+                    time.sleep(3)
+                    
+                    # Verificar se há erro na página
+                    page_source = driver.page_source.lower()
+                    if "erro" in page_source or "error" in page_source:
+                        print(f"    ⚠️ Possível erro detectado na página {page_num}")
+                    
+                    soup = BeautifulSoup(driver.page_source, 'html.parser')
+                    
+                    # Buscar por elementos de publicação (links clicáveis)
+                    publicacao_links = soup.select('div#divResultadosInferior a[href*="consultaSimples.do"]')
+                    
+                    if not publicacao_links and page_num == 1:
+                        print("    ℹ️ Nenhuma publicação encontrada para os critérios definidos.")
+                        break
+                    elif not publicacao_links:
+                        print(f"    ℹ️ Fim dos resultados na página {page_num}")
+                        break
+                    else:
+                        print(f"    📋 Encontrados {len(publicacao_links)} links de publicações na página {page_num}")
+                        
+                        # Processar cada link de publicação
+                        for i, link in enumerate(publicacao_links, 1):
+                            print(f"      🔍 Processando publicação {i}/{len(publicacao_links)} da página {page_num}...")
+                            
+                            try:
+                                # Obter URL do link
+                                href = link.get('href')
+                                if href:
+                                    # Construir URL completa
+                                    if href.startswith('/'):
+                                        full_url = f"https://dje.tjsp.jus.br{href}"
+                                    elif href.startswith('consultaSimples.do'):
+                                        full_url = f"https://dje.tjsp.jus.br/cdje/{href}"
+                                    else:
+                                        full_url = href
+                                    
+                                    print(f"        🌐 Navegando para: {full_url}")
+                                    
+                                    # Navegar para a página específica da publicação
+                                    driver.get(full_url)
+                                    time.sleep(2)
+                                    
+                                    # Extrair dados detalhados desta página
+                                    publicacao_data = self._extrair_dados_pagina_individual(driver)
+                                    
+                                    if publicacao_data:
+                                        all_publicacoes.append(publicacao_data)
+                                        print(f"        ✅ Dados extraídos: {publicacao_data.get('numero_processo', 'N/A')}")
+                                        
+                                        # Log do JSON extraído (para debug)
+                                        print(f"        📋 JSON: {publicacao_data}")
+                                    else:
+                                        print(f"        ⚠️ Não foi possível extrair dados desta publicação")
+                                    
+                                    # Voltar para a página de resultados
+                                    driver.back()
+                                    time.sleep(2)
+                                    
+                            except Exception as e:
+                                print(f"        ❌ Erro ao processar publicação {i}: {e}")
+                                # Tentar voltar para a página de resultados em caso de erro
+                                try:
+                                    driver.back()
+                                    time.sleep(1)
+                                except:
+                                    # Se back() falhar, navegar novamente para os resultados
+                                    # (seria necessário resubmeter o formulário)
+                                    pass
+                                continue
+                    
+                    # Tentar ir para a próxima página
+                    print(f"    🔄 Procurando link para próxima página...")
+                    try:
+                        # Atualizar o soup com a página atual
+                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                        
+                        # Procurar por links de paginação
+                        next_links = soup.select('a[href*="nuSeqpagina"]')
+                        next_page_link = None
+                        
+                        for link in next_links:
+                            if 'próximo' in link.get_text().lower() or '>' in link.get_text():
+                                next_page_link = link
+                                break
+                        
+                        if next_page_link:
+                            href = next_page_link.get('href')
+                            if href:
+                                print(f"    📄 Navegando para próxima página...")
+                                
+                                # Construir URL da próxima página
+                                if href.startswith('/'):
+                                    next_url = f"https://dje.tjsp.jus.br{href}"
+                                else:
+                                    next_url = f"https://dje.tjsp.jus.br/cdje/{href}"
+                                
+                                driver.get(next_url)
+                                time.sleep(3)
+                                page_num += 1
+                                continue
+                        
+                        print(f"    🏁 Não há mais páginas. Finalizada na página {page_num}")
+                        break
+                        
+                    except Exception as e:
+                        print(f"    ❌ Erro ao navegar para próxima página: {e}")
+                        break
+                
+                except Exception as e:
+                    print(f"    ❌ Erro ao processar página {page_num}: {e}")
+                    break
             
             print(f"🎉 Extração concluída! Total de publicações extraídas: {len(all_publicacoes)}")
+            
+            # Log resumo final
+            if all_publicacoes:
+                print("📊 Resumo das publicações:")
+                for i, pub in enumerate(all_publicacoes[:5], 1):  # Mostrar 5 primeiras
+                    print(f"  {i}. {pub.get('numero_processo', 'N/A')} - {pub.get('autores', 'N/A')[:30]}...")
+            
             return all_publicacoes
 
         except Exception as e:
             print(f"❌ Erro fatal durante a extração: {e}")
-            
-            # Debug adicional
-            try:
-                print(f"  🌐 URL atual: {driver.current_url}")
-                print(f"  📄 Título atual: {driver.title}")
-            except:
-                pass
-                
             return []
 
-    def _extrair_dados_publicacao(self, element) -> Dict[str, Any]:
-        """Mesma lógica de extração do scraper original"""
+    def _extrair_dados_pagina_individual(self, driver) -> Dict[str, Any]:
+        """Extrai dados detalhados de uma página individual de publicação"""
         try:
-            texto_completo_element = element.select_one('tr.ementaClass2 td')
-            if not texto_completo_element:
+            # Aguardar a página carregar
+            time.sleep(2)
+            
+            # Obter HTML da página
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            
+            # Extrair conteúdo completo da publicação
+            conteudo_completo = ""
+            
+            # Tentar diferentes seletores para encontrar o conteúdo
+            content_selectors = [
+                'div.ementaClass2',
+                'div.ementaClass',
+                'td.ementaClass2',
+                'td.ementaClass',
+                '.fundocinza1',
+                'tbody tr td'
+            ]
+            
+            for selector in content_selectors:
+                elements = soup.select(selector)
+                if elements:
+                    conteudo_completo = ' '.join([el.get_text(strip=True) for el in elements])
+                    if conteudo_completo:
+                        break
+            
+            # Se não encontrou com seletores específicos, pegar todo o texto da página
+            if not conteudo_completo:
+                body = soup.find('body')
+                if body:
+                    conteudo_completo = body.get_text(strip=True)
+            
+            if not conteudo_completo:
+                print(f"        ⚠️ Não foi possível extrair conteúdo da página")
                 return None
-            conteudo_completo = texto_completo_element.get_text(strip=True)
-
+            
+            # Extrair número do processo
             numero_processo = self._extrair_numero_processo(conteudo_completo)
             if not numero_processo:
+                print(f"        ⚠️ Não foi possível extrair número do processo")
                 return None
             
-            data_str = "N/A"
-            date_element = element.select_one('tr.ementaClass a')
-            if date_element:
-                match = re.search(r'(\d{2}/\d{2}/\d{4})', date_element.get_text())
-                if match:
-                    data_str = match.group(1)
+            # Extrair data de disponibilização
+            data_disponibilizacao = None
+            data_patterns = [
+                r'(\d{2}/\d{2}/\d{4})',
+                r'data[:\s]+(\d{2}/\d{2}/\d{4})',
+                r'disponibiliza[^:]*:?\s*(\d{2}/\d{2}/\d{4})'
+            ]
             
-            data_disponibilizacao = datetime.strptime(data_str, "%d/%m/%Y") if data_str != "N/A" else None
-
+            for pattern in data_patterns:
+                match = re.search(pattern, conteudo_completo, re.IGNORECASE)
+                if match:
+                    try:
+                        data_disponibilizacao = datetime.strptime(match.group(1), "%d/%m/%Y")
+                        break
+                    except:
+                        continue
+            
+            # Extrair informações financeiras com padrões mais abrangentes
+            valor_principal_bruto = self._extrair_valor_monetario(conteudo_completo, [
+                r'valor\s+principal\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
+                r'principal\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
+                r'bruto[:\s]*R?\$?\s*([\d.,]+)',
+                r'valor\s+bruto[:\s]*R?\$?\s*([\d.,]+)'
+            ])
+            
+            valor_principal_liquido = self._extrair_valor_monetario(conteudo_completo, [
+                r'valor\s+principal\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
+                r'principal\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
+                r'líquido[:\s]*R?\$?\s*([\d.,]+)',
+                r'valor\s+líquido[:\s]*R?\$?\s*([\d.,]+)'
+            ])
+            
+            valor_juros_moratorios = self._extrair_valor_monetario(conteudo_completo, [
+                r'juros\s+moratórios[:\s]*R?\$?\s*([\d.,]+)',
+                r'juros[:\s]*R?\$?\s*([\d.,]+)',
+                r'moratórios[:\s]*R?\$?\s*([\d.,]+)'
+            ])
+            
+            honorarios_advocaticios = self._extrair_valor_monetario(conteudo_completo, [
+                r'honorários\s+advocatícios[:\s]*R?\$?\s*([\d.,]+)',
+                r'honorários[:\s]*R?\$?\s*([\d.,]+)',
+                r'advocatícios[:\s]*R?\$?\s*([\d.,]+)'
+            ])
+            
             return {
                 'numero_processo': numero_processo,
                 'data_disponibilizacao': data_disponibilizacao,
-                'autores': self._extrair_autores(conteudo_completo) or '',
-                'advogados': self._extrair_advogados(conteudo_completo) or '',
+                'autores': self._extrair_autores(conteudo_completo) or 'Não identificado',
+                'advogados': self._extrair_advogados(conteudo_completo) or 'Não identificado',
                 'conteudo_completo': conteudo_completo,
-                'valor_principal_bruto': self._extrair_valor_monetario(conteudo_completo, [r'valor\s+principal\s+bruto[:\s]*R\$\s*([\d.,]+)']),
-                'valor_principal_liquido': self._extrair_valor_monetario(conteudo_completo, [r'valor\s+principal\s+líquido[:\s]*R\$\s*([\d.,]+)']),
-                'valor_juros_moratorios': self._extrair_valor_monetario(conteudo_completo, [r'juros\s+moratórios[:\s]*R\$\s*([\d.,]+)']),
-                'honorarios_advocaticios': self._extrair_valor_monetario(conteudo_completo, [r'honorários\s+advocatícios[:\s]*R\$\s*([\d.,]+)'])
+                'valor_principal_bruto': valor_principal_bruto,
+                'valor_principal_liquido': valor_principal_liquido,
+                'valor_juros_moratorios': valor_juros_moratorios,
+                'honorarios_advocaticios': honorarios_advocaticios,
+                'url_origem': driver.current_url
             }
+            
         except Exception as e:
-            print(f"    ⚠️ Erro ao parsear publicação: {e}")
+            print(f"        ❌ Erro ao extrair dados da página individual: {e}")
             return None
 
     def _extrair_numero_processo(self, texto: str) -> str:

@@ -1774,12 +1774,15 @@ class StopVisualScraping(Resource):
         return {'success': True, 'message': 'Scraping visual parado'}
 
 def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
-    """Thread que executa o scraping visual"""
+    """Thread que executa o scraping visual com persistência no banco"""
     global scraping_status, global_scraper
     
     scraping_status['active'] = True
     scraping_status['step'] = 'Inicializando Chrome...'
     scraping_status['progress'] = 5
+    
+    publicacoes_extraidas = []
+    publicacoes_salvas = []
     
     try:
         # Limpar scraper anterior se existir
@@ -1792,15 +1795,70 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
             raise Exception("Não foi possível inicializar o Chrome")
         
         try:
-            # Usar o método debug que tem todos os fallbacks
-            scraping_status['step'] = 'Executando scraping com métodos seguros...'
+            scraping_status['step'] = 'Executando scraping completo...'
             scraping_status['progress'] = 25
             
-            # Executar o scraping debug
-            publicacoes = scraper.extrair_publicacoes_debug(data_inicio, data_fim, pause_between_steps=False)
+            # Executar o scraping debug para extração
+            publicacoes_extraidas = scraper.extrair_publicacoes_debug(data_inicio, data_fim, pause_between_steps=False)
             
-            scraping_status['step'] = f'✅ Concluído! {len(publicacoes)} publicações extraídas'
-            scraping_status['progress'] = 100
+            scraping_status['step'] = f'📊 Dados extraídos: {len(publicacoes_extraidas)} publicações'
+            scraping_status['progress'] = 60
+            
+            # Salvar no banco usando o use case
+            if publicacoes_extraidas:
+                try:
+                    from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQLAlchemyPublicacaoRepository
+                    from app.domain.use_cases.extract_publicacoes_use_case import ExtractPublicacoesUseCase
+                    from app.infrastructure.scraping.dje_scraper import DJEScraper
+                    
+                    scraping_status['step'] = '💾 Salvando no banco de dados...'
+                    scraping_status['progress'] = 80
+                    
+                    # Usar o use case para salvar (simular dados já extraídos)
+                    repository = SQLAlchemyPublicacaoRepository()
+                    
+                    for publicacao_data in publicacoes_extraidas:
+                        try:
+                            # Verificar se já existe
+                            publicacao_existente = repository.find_by_numero_processo(
+                                publicacao_data['numero_processo']
+                            )
+                            
+                            if not publicacao_existente:
+                                from app.domain.entities.publicacao import Publicacao
+                                
+                                publicacao = Publicacao(
+                                    numero_processo=publicacao_data['numero_processo'],
+                                    data_disponibilizacao=publicacao_data['data_disponibilizacao'],
+                                    autores=publicacao_data['autores'],
+                                    advogados=publicacao_data['advogados'],
+                                    conteudo_completo=publicacao_data['conteudo_completo'],
+                                    valor_principal_bruto=publicacao_data.get('valor_principal_bruto'),
+                                    valor_principal_liquido=publicacao_data.get('valor_principal_liquido'),
+                                    valor_juros_moratorios=publicacao_data.get('valor_juros_moratorios'),
+                                    honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios')
+                                )
+                                
+                                publicacao_salva = repository.create(publicacao)
+                                publicacoes_salvas.append(publicacao_salva)
+                                print(f"✅ Publicação salva: {publicacao_data['numero_processo']}")
+                            else:
+                                print(f"⏭️ Publicação já existe: {publicacao_data['numero_processo']}")
+                                
+                        except Exception as e:
+                            print(f"❌ Erro ao salvar publicação {publicacao_data.get('numero_processo', 'N/A')}: {e}")
+                            continue
+                    
+                    scraping_status['step'] = f'✅ Concluído! {len(publicacoes_extraidas)} extraídas, {len(publicacoes_salvas)} salvas no BD'
+                    scraping_status['progress'] = 100
+                    
+                except Exception as db_error:
+                    print(f"❌ Erro no banco de dados: {db_error}")
+                    scraping_status['step'] = f'⚠️ Extraídas: {len(publicacoes_extraidas)}, Erro no BD: {str(db_error)}'
+                    scraping_status['progress'] = 90
+            else:
+                scraping_status['step'] = '📭 Nenhuma publicação encontrada para os critérios'
+                scraping_status['progress'] = 100
             
             # Aguardar antes de finalizar (mantém o scraper ativo para screenshots)
             time.sleep(10)
@@ -1808,14 +1866,27 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
         except Exception as e:
             scraping_status['step'] = f'❌ Erro: {str(e)}'
             scraping_status['progress'] = 0
-            # Não fechar o scraper em caso de erro, para permitir screenshots
+            print(f"❌ Erro durante scraping: {e}")
             
     except Exception as e:
         scraping_status['step'] = f'❌ Erro: {str(e)}'
         scraping_status['progress'] = 0
         cleanup_global_scraper()
+        print(f"❌ Erro crítico: {e}")
     
     finally:
+        # Log do resultado final
+        print(f"🏁 Scraping finalizado:")
+        print(f"   📊 Publicações extraídas: {len(publicacoes_extraidas)}")
+        print(f"   💾 Publicações salvas: {len(publicacoes_salvas)}")
+        
+        if publicacoes_extraidas:
+            print("📋 Resumo das publicações extraídas:")
+            for i, pub in enumerate(publicacoes_extraidas[:3], 1):  # Mostrar apenas as 3 primeiras
+                print(f"   {i}. Processo: {pub.get('numero_processo', 'N/A')}")
+                print(f"      Data: {pub.get('data_disponibilizacao', 'N/A')}")
+                print(f"      Autores: {pub.get('autores', 'N/A')[:50]}...")
+                
         # Resetar status após 60 segundos, mas manter scraper ativo
         time.sleep(60)
         if scraping_status['active']:
