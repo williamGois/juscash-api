@@ -1109,6 +1109,19 @@ class DJEScraperDebug:
             
             self.log("✅ Driver fechado e recursos limpos")
 
+    @classmethod
+    def reset_instance(cls):
+        """Reseta a instância singleton (útil em caso de erro)"""
+        with cls._lock:
+            if cls._instance:
+                try:
+                    if hasattr(cls._instance, 'driver') and cls._instance.driver:
+                        cls._instance.driver.quit()
+                except:
+                    pass
+            cls._instance = None
+            print("🔄 Instância singleton resetada")
+
     def _wait_for_page_load(self, timeout=30):
         """Aguarda o carregamento completo da página"""
         try:

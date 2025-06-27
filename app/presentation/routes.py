@@ -1252,6 +1252,13 @@ def cleanup_global_scraper():
             finally:
                 global_scraper = None
                 print("✅ Scraper global limpo")
+        
+        # Também resetar a instância singleton do DJEScraperDebug
+        try:
+            from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+            DJEScraperDebug.reset_instance()
+        except:
+            pass
 
 @selenium_visual_ns.route('/live')
 class SeleniumLive(Resource):
@@ -1756,6 +1763,13 @@ class SeleniumVisualStatus(Resource):
             }
             
         except Exception as e:
+            # Se houver erro, resetar a instância singleton
+            try:
+                from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+                DJEScraperDebug.reset_instance()
+            except:
+                pass
+            
             return {
                 'active': False,
                 'step': f'❌ Erro: {str(e)}',
