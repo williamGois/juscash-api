@@ -6,6 +6,7 @@ from app.infrastructure.repositories.sqlalchemy_publicacao_repository import SQL
 from app.infrastructure.scraping.dje_scraper import DJEScraper
 from app.tasks.scraping_tasks import extract_publicacoes_task
 import os
+import threading
 
 def get_version():
     """Lê a versão do arquivo VERSION na raiz do projeto."""
@@ -1153,32 +1154,73 @@ scraping_status = {
 
 # Instância global do scraper para screenshots
 global_scraper = None
+global_scraper_lock = threading.Lock()
 
 def get_or_create_scraper():
-    """Obtém ou cria uma instância do scraper"""
+    """Obtém ou cria uma instância do scraper com thread safety"""
     global global_scraper
     
-    if global_scraper is None or global_scraper.driver is None:
+    with global_scraper_lock:
+        # Verificar se já existe e está funcional
+        if global_scraper is not None:
+            try:
+                # Verificar se o driver está ativo
+                if hasattr(global_scraper, 'driver') and global_scraper.driver is not None:
+                    # Teste rápido para ver se o driver está respondendo
+                    _ = global_scraper.driver.current_url
+                    return global_scraper
+            except Exception as e:
+                print(f"⚠️ Scraper existente não está funcional: {e}")
+                # Limpar scraper defeituoso
+                try:
+                    if hasattr(global_scraper, 'driver') and global_scraper.driver:
+                        global_scraper.driver.quit()
+                except:
+                    pass
+                global_scraper = None
+        
+        # Criar novo scraper se necessário
         try:
             from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+            print("🔧 Criando nova instância do scraper...")
+            
+            # Resetar singleton antes de criar nova instância
+            DJEScraperDebug._instance = None
+            
+            # Criar nova instância
             global_scraper = DJEScraperDebug(visual_mode=False)
+            
+            # Inicializar o driver imediatamente para verificar se funciona
+            driver = global_scraper.get_driver()
+            if driver is None:
+                raise Exception("Falha ao inicializar driver")
+            
+            print("✅ Nova instância do scraper criada com sucesso")
             return global_scraper
+            
         except Exception as e:
-            print(f"Erro ao criar scraper: {e}")
+            print(f"❌ Erro ao criar scraper: {e}")
+            global_scraper = None
             return None
-    
-    return global_scraper
 
 def cleanup_global_scraper():
-    """Limpa a instância global do scraper"""
+    """Limpa a instância global do scraper com thread safety"""
     global global_scraper
     
-    if global_scraper:
-        try:
-            global_scraper.close()
-        except:
-            pass
-        global_scraper = None
+    with global_scraper_lock:
+        if global_scraper:
+            try:
+                print("🧹 Limpando scraper global...")
+                if hasattr(global_scraper, 'driver') and global_scraper.driver:
+                    global_scraper.driver.quit()
+                # Resetar singleton
+                if hasattr(global_scraper, '__class__'):
+                    global_scraper.__class__._instance = None
+            except Exception as e:
+                print(f"⚠️ Erro ao limpar scraper: {e}")
+            finally:
+                global_scraper = None
+                print("✅ Scraper global limpo")
 
 @selenium_visual_ns.route('/live')
 class SeleniumLive(Resource):

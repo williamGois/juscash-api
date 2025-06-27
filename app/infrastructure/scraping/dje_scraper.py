@@ -69,16 +69,16 @@ class DJEScraper:
                 logging.info(f"Tentativa {attempt + 1} de inicializar Chrome driver...")
                 
                 # Tenta usar o webdriver-manager como primeira opção
-                try:
-                    service = Service(ChromeDriverManager().install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    logging.info("✅ Driver inicializado com webdriver-manager")
-                    break
-                except Exception as e:
+                    try:
+                        service = Service(ChromeDriverManager().install())
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        logging.info("✅ Driver inicializado com webdriver-manager")
+                        break
+                    except Exception as e:
                     logging.warning(f"Webdriver-manager falhou, tentando com o Chrome do sistema: {e}")
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                    logging.info("✅ Driver inicializado com Chrome do sistema")
-                    break
+                        self.driver = webdriver.Chrome(options=chrome_options)
+                        logging.info("✅ Driver inicializado com Chrome do sistema")
+                        break
             
             except Exception as e:
                 logging.error(f"Erro na tentativa {attempt + 1}: {e}")
@@ -116,7 +116,7 @@ class DJEScraper:
             return self.driver is not None
     
     def extrair_publicacoes(self, data_inicio: datetime, data_fim: datetime) -> List[Dict[str, Any]]:
-        if not self._restart_driver_if_needed():
+                if not self._restart_driver_if_needed():
             logging.error("Driver não está operacional. Abortando extração.")
             return []
 
@@ -148,7 +148,7 @@ class DJEScraper:
                     
                     if not publicacoes_elements and page_num == 1:
                         logging.info("Nenhuma publicação encontrada para os critérios definidos.")
-                        break
+                    break
             
                     for element in publicacoes_elements:
                         publicacao_data = self._extrair_dados_publicacao(element)
@@ -165,7 +165,7 @@ class DJEScraper:
                         logging.info("Fim da paginação. Não há mais link 'Próximo>'.")
                         break
                         
-                except Exception as e:
+            except Exception as e:
                     logging.error(f"Erro ao processar página {page_num}: {e}")
                     break
             

@@ -33,7 +33,7 @@ class DJEScraperDebug:
         return cls._instance
 
     def __init__(self, base_url: str = "https://dje.tjsp.jus.br/cdje/index.do", visual_mode: bool = False):
-        if not hasattr(self, 'initialized'):  # Evitar reinicialização
+        if not hasattr(self, 'initialized'):
             with self._lock:
                 if not hasattr(self, 'initialized'):
                     self.base_url = base_url
@@ -43,8 +43,29 @@ class DJEScraperDebug:
                     self.max_retries = 3
                     self.visual_mode = visual_mode
                     logging.basicConfig(level=logging.INFO)
-                    self._initialize_driver()
+                    # NÃO inicializar o driver aqui
                     self.initialized = True
+
+    def get_driver(self):
+        """Obtém o driver, inicializando-o se necessário."""
+        with self._lock:
+            if self.driver is None:
+                self._initialize_driver()
+            
+            # Verificar se o driver está vivo
+            try:
+                # Uma operação simples como pegar a URL atual pode verificar a conexão
+                _ = self.driver.current_url
+            except Exception as e:
+                print(f"⚠️ Driver não responsivo ({e}), tentando reiniciar...")
+                try:
+                    self.driver.quit()
+                except:
+                    pass
+                self.driver = None
+                self._initialize_driver()
+
+            return self.driver
 
     def _get_chrome_options(self):
         """Configurações do Chrome - com opção visual para debug"""
@@ -215,7 +236,8 @@ class DJEScraperDebug:
 
     def extrair_publicacoes_debug(self, data_inicio: datetime, data_fim: datetime, pause_between_steps: bool = True) -> List[Dict[str, Any]]:
         """Versão debug com pausas para visualizar cada etapa"""
-        if not self.driver:
+        driver = self.get_driver()
+        if not driver:
             logging.error("❌ Driver não está operacional. Abortando extração.")
             return []
 
@@ -224,7 +246,7 @@ class DJEScraperDebug:
         try:
             # Etapa 1: Acessar o site
             print("📍 Etapa 1: Acessando o site do DJE...")
-            self.driver.get(self.base_url)
+            driver.get(self.base_url)
             
             # Aguardar carregamento completo
             print("  ⏳ Aguardando carregamento completo da página...")
@@ -257,7 +279,7 @@ class DJEScraperDebug:
                 print("  ✅ Caderno selecionado via Selenium")
             except:
                 print("  ⚠️ Selenium falhou, usando JavaScript para select")
-                self.driver.execute_script("""
+                driver.execute_script("""
                     var select = arguments[0];
                     select.value = '-11';
                     select.dispatchEvent(new Event('change', {bubbles: true}));
@@ -297,11 +319,11 @@ class DJEScraperDebug:
                 time.sleep(3)
                 
                 # Verificar se há erro na página
-                page_source = self.driver.page_source.lower()
+                page_source = driver.page_source.lower()
                 if "erro" in page_source or "error" in page_source:
                     print("  ⚠️ Possível erro detectado na página")
                 
-                soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
                 publicacoes_elements = soup.select('div#divResultadosInferior table tr.fundocinza1')
                 
                 if not publicacoes_elements:
@@ -331,8 +353,8 @@ class DJEScraperDebug:
                 
                 # Debug: mostrar URL atual e título
                 try:
-                    print(f"  🌐 URL atual: {self.driver.current_url}")
-                    print(f"  📄 Título atual: {self.driver.title}")
+                    print(f"  🌐 URL atual: {driver.current_url}")
+                    print(f"  📄 Título atual: {driver.title}")
                 except:
                     pass
             
@@ -344,8 +366,8 @@ class DJEScraperDebug:
             
             # Debug adicional
             try:
-                print(f"  🌐 URL atual: {self.driver.current_url}")
-                print(f"  📄 Título atual: {self.driver.title}")
+                print(f"  🌐 URL atual: {driver.current_url}")
+                print(f"  📄 Título atual: {driver.title}")
             except:
                 pass
                 
@@ -419,7 +441,8 @@ class DJEScraperDebug:
 
     def take_screenshot(self, filename: str = None):
         """Tira screenshot da página atual"""
-        if not self.driver:
+        driver = self.get_driver()
+        if not driver:
             print("❌ Driver não inicializado")
             return
         
@@ -428,36 +451,40 @@ class DJEScraperDebug:
             filename = f"scraping_screenshot_{timestamp}.png"
         
         try:
-            self.driver.save_screenshot(filename)
+            driver.save_screenshot(filename)
             print(f"📸 Screenshot salva: {filename}")
         except Exception as e:
             print(f"❌ Erro ao salvar screenshot: {e}")
 
     def get_page_info(self):
         """Mostra informações da página atual"""
-        if not self.driver:
+        driver = self.get_driver()
+        if not driver:
             print("❌ Driver não inicializado")
             return
         
-        print(f"🌐 URL atual: {self.driver.current_url}")
-        print(f"📄 Título: {self.driver.title}")
-        print(f"🖥️ Tamanho da janela: {self.driver.get_window_size()}")
+        print(f"🌐 URL atual: {driver.current_url}")
+        print(f"📄 Título: {driver.title}")
+        print(f"🖥️ Tamanho da janela: {driver.get_window_size()}")
 
     def close(self):
         """Fecha o driver e reseta a instância para permitir recriação."""
-        if self.driver:
-            try:
-                if self.visual_mode:
-                    print("-> Pressione Enter para fechar o Chrome")
-                self.driver.quit()
-                print("✅ Chrome fechado com sucesso")
-            except Exception as e:
-                print(f"⚠️ Erro ao fechar driver: {e}")
-            finally:
-                self.driver = None
-                self.__class__._instance = None  # Permitir recriação
-                if hasattr(self, 'initialized'):
-                    del self.initialized
+        with self._lock:
+            if self.driver:
+                try:
+                    self.driver.quit()
+                    print("✅ Chrome fechado com sucesso")
+                except Exception as e:
+                    print(f"⚠️ Erro ao fechar driver: {e}")
+                finally:
+                    self.driver = None
+                    self.wait = None
+                    
+            if self.__class__._instance:
+                self.__class__._instance = None
+            
+            if hasattr(self, 'initialized'):
+                del self.initialized
 
     def _wait_for_page_load(self, timeout=30):
         """Aguarda o carregamento completo da página"""
