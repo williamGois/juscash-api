@@ -86,6 +86,31 @@ class DJEScraperDebug:
         chrome_options.add_argument("--disable-default-apps")
         chrome_options.add_argument("--disable-sync")
         
+        # NOVO: Configurações para melhor estabilidade
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument("--disable-infobars")
+        chrome_options.add_argument("--disable-notifications")
+        chrome_options.add_argument("--disable-save-password-bubble")
+        chrome_options.add_argument("--disable-translate")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor,VizHitTestSurfaceLayer")
+        chrome_options.add_argument("--force-device-scale-factor=1")
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--ignore-ssl-errors")
+        chrome_options.add_argument("--allow-running-insecure-content")
+        chrome_options.add_argument("--disable-component-update")
+        chrome_options.add_argument("--disable-domain-reliability")
+        chrome_options.add_argument("--disable-features=TranslateUI,BlinkGenPropertyTrees")
+        chrome_options.add_argument("--disable-hang-monitor")
+        chrome_options.add_argument("--disable-prompt-on-repost")
+        chrome_options.add_argument("--disable-web-resources")
+        chrome_options.add_argument("--enable-automation")
+        chrome_options.add_argument("--hide-scrollbars")
+        chrome_options.add_argument("--mute-audio")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--no-default-browser-check")
+        chrome_options.add_argument("--password-store=basic")
+        chrome_options.add_argument("--use-mock-keychain")
+        
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.add_experimental_option('detach', False)  # Não destacar
@@ -184,45 +209,25 @@ class DJEScraperDebug:
             
             # Aguardar campo data início estar disponível e interagível
             print(f"  📅 Aguardando campo data início...")
-            data_inicio_field = self.wait.until(EC.element_to_be_clickable((By.ID, "dtInicioString")))
-            time.sleep(1)
-            
-            # Limpar e preencher data início
-            data_inicio_field.clear()
-            time.sleep(0.5)
-            data_inicio_field.send_keys(data_inicio.strftime("%d/%m/%Y"))
-            print(f"  ✅ Data início preenchida: {data_inicio.strftime('%d/%m/%Y')}")
+            data_inicio_field = self._wait_for_element_ready(By.ID, "dtInicioString")
+            self._safe_send_keys(data_inicio_field, data_inicio.strftime("%d/%m/%Y"))
             
             # Aguardar campo data fim estar disponível
             print(f"  📅 Aguardando campo data fim...")
-            data_fim_field = self.wait.until(EC.element_to_be_clickable((By.ID, "dtFimString")))
-            time.sleep(1)
-            
-            # Limpar e preencher data fim
-            data_fim_field.clear()
-            time.sleep(0.5)
-            data_fim_field.send_keys(data_fim.strftime("%d/%m/%Y"))
-            print(f"  ✅ Data fim preenchida: {data_fim.strftime('%d/%m/%Y')}")
+            data_fim_field = self._wait_for_element_ready(By.ID, "dtFimString")
+            self._safe_send_keys(data_fim_field, data_fim.strftime("%d/%m/%Y"))
             
             # Aguardar select caderno estar disponível
             print("  📂 Aguardando select caderno...")
-            select_caderno_element = self.wait.until(EC.element_to_be_clickable((By.NAME, "dadosConsulta.cdCaderno")))
-            time.sleep(1)
-            
+            select_caderno_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.cdCaderno")
             select_caderno = Select(select_caderno_element)
             select_caderno.select_by_value("-11")
             print("  ✅ Caderno selecionado")
 
             # Aguardar campo de busca estar disponível
             print("  🔍 Aguardando campo de busca...")
-            search_box = self.wait.until(EC.element_to_be_clickable((By.ID, "procura")))
-            time.sleep(1)
-            
-            # Limpar e preencher termo de busca
-            search_box.clear()
-            time.sleep(0.5)
-            search_box.send_keys('"instituto nacional do seguro social" E inss')
-            print("  ✅ Termo de busca preenchido")
+            search_box = self._wait_for_element_ready(By.ID, "procura")
+            self._safe_send_keys(search_box, '"instituto nacional do seguro social" E inss')
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para submeter o formulário...")
@@ -231,17 +236,9 @@ class DJEScraperDebug:
             print("📍 Etapa 3: Submetendo formulário...")
             
             # Aguardar botão submit estar disponível
-            submit_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")))
-            time.sleep(1)
-            
-            # Usar JavaScript para clicar se necessário
-            try:
-                submit_button.click()
-                print("  ✅ Formulário submetido via click()")
-            except Exception as e:
-                print(f"  ⚠️ Click normal falhou, tentando JavaScript: {e}")
-                self.driver.execute_script("arguments[0].click();", submit_button)
-                print("  ✅ Formulário submetido via JavaScript")
+            print("  🔘 Aguardando botão submit...")
+            submit_button = self._wait_for_element_ready(By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")
+            self._safe_click(submit_button)
 
             print("⏳ Aguardando resultados...")
             time.sleep(8)  # Mais tempo para carregar
@@ -417,4 +414,87 @@ class DJEScraperDebug:
             except Exception as e:
                 print(f"⚠️ Erro ao fechar driver: {e}")
             finally:
-                self.driver = None 
+                self.driver = None
+
+    def _wait_for_element_ready(self, by, value, timeout=30):
+        """Aguarda elemento estar visível, habilitado e pronto para interação"""
+        try:
+            # Aguardar elemento estar presente
+            element = self.wait.until(EC.presence_of_element_located((by, value)))
+            
+            # Aguardar estar visível
+            self.wait.until(EC.visibility_of_element_located((by, value)))
+            
+            # Aguardar estar clicável
+            element = self.wait.until(EC.element_to_be_clickable((by, value)))
+            
+            # Verificação adicional de estado
+            for attempt in range(5):
+                try:
+                    if element.is_enabled() and element.is_displayed():
+                        # Scroll para o elemento se necessário
+                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
+                        time.sleep(0.5)
+                        return element
+                except Exception as e:
+                    print(f"    ⚠️ Tentativa {attempt + 1}: Elemento não pronto: {e}")
+                    time.sleep(1)
+                    element = self.driver.find_element(by, value)
+            
+            print(f"    ✅ Elemento {value} pronto para interação")
+            return element
+            
+        except Exception as e:
+            print(f"    ❌ Erro ao aguardar elemento {value}: {e}")
+            raise
+
+    def _safe_send_keys(self, element, text, clear_first=True):
+        """Envia texto de forma segura com verificações"""
+        try:
+            if clear_first:
+                element.clear()
+                time.sleep(0.3)
+            
+            # Verificar se o elemento ainda está ativo
+            if not element.is_enabled() or not element.is_displayed():
+                raise Exception("Elemento não está mais disponível")
+            
+            element.send_keys(text)
+            time.sleep(0.5)
+            
+            # Verificar se o texto foi inserido
+            current_value = element.get_attribute('value')
+            if current_value != text:
+                print(f"    ⚠️ Valor esperado: {text}, valor atual: {current_value}")
+                element.clear()
+                time.sleep(0.3)
+                element.send_keys(text)
+                
+            print(f"    ✅ Texto inserido: {text}")
+            return True
+            
+        except Exception as e:
+            print(f"    ❌ Erro ao inserir texto: {e}")
+            raise
+
+    def _safe_click(self, element):
+        """Clica de forma segura com fallback para JavaScript"""
+        try:
+            if not element.is_enabled() or not element.is_displayed():
+                raise Exception("Elemento não está disponível para click")
+            
+            # Tentar click normal primeiro
+            element.click()
+            print(f"    ✅ Click normal realizado")
+            return True
+            
+        except Exception as e:
+            print(f"    ⚠️ Click normal falhou: {e}")
+            try:
+                # Fallback para JavaScript
+                self.driver.execute_script("arguments[0].click();", element)
+                print(f"    ✅ Click via JavaScript realizado")
+                return True
+            except Exception as e2:
+                print(f"    ❌ Click via JavaScript falhou: {e2}")
+                raise 
