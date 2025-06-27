@@ -167,42 +167,84 @@ class DJEScraperDebug:
 
         print(f"🕷️ Iniciando extração de {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
         
-        # Etapa 1: Acessar o site
-        print("📍 Etapa 1: Acessando o site do DJE...")
-        self.driver.get(self.base_url)
-        
-        if pause_between_steps and self.visual_mode:
-            input("⏸️ Pressione Enter para continuar para o preenchimento do formulário...")
-
         try:
+            # Etapa 1: Acessar o site
+            print("📍 Etapa 1: Acessando o site do DJE...")
+            self.driver.get(self.base_url)
+            
+            # Aguardar carregamento completo
+            self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            time.sleep(3)
+            
+            if pause_between_steps and self.visual_mode:
+                input("⏸️ Pressione Enter para continuar para o preenchimento do formulário...")
+
             # Etapa 2: Preencher formulário
             print("📍 Etapa 2: Preenchendo formulário de pesquisa...")
             
-            print(f"  📅 Preenchendo data início: {data_inicio.strftime('%d/%m/%Y')}")
-            self.wait.until(EC.visibility_of_element_located((By.ID, "dtInicioString"))).send_keys(data_inicio.strftime("%d/%m/%Y"))
+            # Aguardar campo data início estar disponível e interagível
+            print(f"  📅 Aguardando campo data início...")
+            data_inicio_field = self.wait.until(EC.element_to_be_clickable((By.ID, "dtInicioString")))
+            time.sleep(1)
             
-            print(f"  📅 Preenchendo data fim: {data_fim.strftime('%d/%m/%Y')}")
-            self.driver.find_element(By.ID, "dtFimString").send_keys(data_fim.strftime("%d/%m/%Y"))
+            # Limpar e preencher data início
+            data_inicio_field.clear()
+            time.sleep(0.5)
+            data_inicio_field.send_keys(data_inicio.strftime("%d/%m/%Y"))
+            print(f"  ✅ Data início preenchida: {data_inicio.strftime('%d/%m/%Y')}")
             
-            print("  📂 Selecionando caderno...")
-            select_caderno = Select(self.driver.find_element(By.NAME, "dadosConsulta.cdCaderno"))
+            # Aguardar campo data fim estar disponível
+            print(f"  📅 Aguardando campo data fim...")
+            data_fim_field = self.wait.until(EC.element_to_be_clickable((By.ID, "dtFimString")))
+            time.sleep(1)
+            
+            # Limpar e preencher data fim
+            data_fim_field.clear()
+            time.sleep(0.5)
+            data_fim_field.send_keys(data_fim.strftime("%d/%m/%Y"))
+            print(f"  ✅ Data fim preenchida: {data_fim.strftime('%d/%m/%Y')}")
+            
+            # Aguardar select caderno estar disponível
+            print("  📂 Aguardando select caderno...")
+            select_caderno_element = self.wait.until(EC.element_to_be_clickable((By.NAME, "dadosConsulta.cdCaderno")))
+            time.sleep(1)
+            
+            select_caderno = Select(select_caderno_element)
             select_caderno.select_by_value("-11")
+            print("  ✅ Caderno selecionado")
 
-            print("  🔍 Preenchendo termo de busca...")
-            search_box = self.driver.find_element(By.ID, "procura")
+            # Aguardar campo de busca estar disponível
+            print("  🔍 Aguardando campo de busca...")
+            search_box = self.wait.until(EC.element_to_be_clickable((By.ID, "procura")))
+            time.sleep(1)
+            
+            # Limpar e preencher termo de busca
             search_box.clear()
+            time.sleep(0.5)
             search_box.send_keys('"instituto nacional do seguro social" E inss')
+            print("  ✅ Termo de busca preenchido")
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para submeter o formulário...")
             
             # Etapa 3: Submeter formulário
             print("📍 Etapa 3: Submetendo formulário...")
-            submit_button = self.driver.find_element(By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")
-            submit_button.click()
+            
+            # Aguardar botão submit estar disponível
+            submit_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")))
+            time.sleep(1)
+            
+            # Usar JavaScript para clicar se necessário
+            try:
+                submit_button.click()
+                print("  ✅ Formulário submetido via click()")
+            except Exception as e:
+                print(f"  ⚠️ Click normal falhou, tentando JavaScript: {e}")
+                self.driver.execute_script("arguments[0].click();", submit_button)
+                print("  ✅ Formulário submetido via JavaScript")
 
             print("⏳ Aguardando resultados...")
-            time.sleep(5)
+            time.sleep(8)  # Mais tempo para carregar
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para processar os resultados...")
@@ -210,35 +252,66 @@ class DJEScraperDebug:
             # Etapa 4: Processar resultados
             print("📍 Etapa 4: Processando resultados...")
             all_publicacoes = []
-            page_num = 1
             
             try:
+                # Aguardar div de resultados com timeout maior
+                print("  ⏳ Aguardando div de resultados...")
                 self.wait.until(EC.presence_of_element_located((By.ID, "divResultadosInferior")))
-                time.sleep(2)
+                time.sleep(3)
+                
+                # Verificar se há erro na página
+                page_source = self.driver.page_source.lower()
+                if "erro" in page_source or "error" in page_source:
+                    print("  ⚠️ Possível erro detectado na página")
                 
                 soup = BeautifulSoup(self.driver.page_source, 'html.parser')
                 publicacoes_elements = soup.select('div#divResultadosInferior table tr.fundocinza1')
                 
                 if not publicacoes_elements:
                     print("  ℹ️ Nenhuma publicação encontrada para os critérios definidos.")
+                    
+                    # Debug: mostrar conteúdo da div de resultados
+                    div_resultados = soup.select_one('div#divResultadosInferior')
+                    if div_resultados:
+                        print(f"  🔍 Conteúdo da div resultados: {div_resultados.get_text()[:200]}...")
                 else:
                     print(f"  📋 Encontradas {len(publicacoes_elements)} publicações")
                     
                     for i, element in enumerate(publicacoes_elements, 1):
                         print(f"    🔍 Extraindo dados da publicação {i}/{len(publicacoes_elements)}...")
-                        publicacao_data = self._extrair_dados_publicacao(element)
-                        if publicacao_data:
-                            all_publicacoes.append(publicacao_data)
-                            print(f"    ✅ Processo: {publicacao_data.get('numero_processo', 'N/A')}")
+                        try:
+                            publicacao_data = self._extrair_dados_publicacao(element)
+                            if publicacao_data:
+                                all_publicacoes.append(publicacao_data)
+                                print(f"    ✅ Processo: {publicacao_data.get('numero_processo', 'N/A')}")
+                            else:
+                                print(f"    ⚠️ Dados não extraídos para publicação {i}")
+                        except Exception as e:
+                            print(f"    ❌ Erro ao extrair publicação {i}: {e}")
                 
             except Exception as e:
                 print(f"  ❌ Erro ao processar resultados: {e}")
+                
+                # Debug: mostrar URL atual e título
+                try:
+                    print(f"  🌐 URL atual: {self.driver.current_url}")
+                    print(f"  📄 Título atual: {self.driver.title}")
+                except:
+                    pass
             
             print(f"🎉 Extração concluída! Total de publicações extraídas: {len(all_publicacoes)}")
             return all_publicacoes
 
         except Exception as e:
             print(f"❌ Erro fatal durante a extração: {e}")
+            
+            # Debug adicional
+            try:
+                print(f"  🌐 URL atual: {self.driver.current_url}")
+                print(f"  📄 Título atual: {self.driver.title}")
+            except:
+                pass
+                
             return []
 
     def _extrair_dados_publicacao(self, element) -> Dict[str, Any]:
