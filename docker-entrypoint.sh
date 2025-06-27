@@ -24,6 +24,23 @@ else
     echo "✅ Xvfb já está rodando"
 fi
 
+# Função para manter Xvfb rodando em produção
+if [ "$ENVIRONMENT" = "production" ]; then
+    echo "🔄 Configurando monitoramento do Xvfb..."
+    (
+        while true; do
+            sleep 30
+            if ! pgrep -x "Xvfb" > /dev/null; then
+                echo "⚠️ Xvfb parou, reiniciando..."
+                Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+                sleep 2
+                echo "✅ Xvfb reiniciado"
+            fi
+        done
+    ) &
+    echo "✅ Monitor do Xvfb iniciado"
+fi
+
 # Verificar ChromeDriver
 echo "🔍 Verificando ChromeDriver..."
 if command -v chromedriver >/dev/null 2>&1; then
