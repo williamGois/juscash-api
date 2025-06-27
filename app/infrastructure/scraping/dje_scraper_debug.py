@@ -16,6 +16,7 @@ import requests
 import tempfile
 import uuid
 import threading
+import subprocess
 
 class DJEScraperDebug:
     """
@@ -159,80 +160,133 @@ class DJEScraperDebug:
         """Inicializa o driver com configurações de debug"""
         chrome_options = self._get_chrome_options()
         
-        # Configurar display virtual
+        # Verificar prerequisitos
+        print("🔍 Verificando prerequisitos...")
+        
+        # Verificar display virtual
         if 'DISPLAY' not in os.environ:
             os.environ['DISPLAY'] = ':99'
             print("🖥️ Display configurado para :99")
+        else:
+            print(f"🖥️ Display já configurado: {os.environ['DISPLAY']}")
+        
+        # Verificar se Xvfb está rodando
+        try:
+            result = subprocess.run(['pgrep', '-f', 'Xvfb'], capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"✅ Xvfb está rodando (PID: {result.stdout.strip()})")
+            else:
+                print("⚠️ Xvfb não está rodando, tentando iniciar...")
+                subprocess.run(['Xvfb', ':99', '-screen', '0', '1920x1080x24'], check=False)
+        except Exception as e:
+            print(f"⚠️ Erro ao verificar Xvfb: {e}")
         
         for attempt in range(self.max_retries):
             try:
-                logging.info(f"🚀 Tentativa {attempt + 1} de inicializar Chrome driver...")
+                print(f"🚀 Tentativa {attempt + 1}/{self.max_retries} de inicializar Chrome driver...")
                 
                 if self.visual_mode:
                     print(f"🎯 Modo: VISUAL (Chrome será visível no display {os.environ.get('DISPLAY', 'padrão')})")
                 else:
                     print(f"🎯 Modo: HEADLESS (Chrome oculto)")
                 
-                # Estratégia 1: Usar chromedriver do sistema (instalado no Dockerfile)
+                # Verificar se ChromeDriver existe
+                chromedriver_paths = ['/usr/local/bin/chromedriver', '/usr/bin/chromedriver']
+                chromedriver_path = None
+                
+                for path in chromedriver_paths:
+                    try:
+                        result = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            chromedriver_path = path
+                            print(f"✅ ChromeDriver encontrado em {path}: {result.stdout.strip()}")
+                            break
+                    except Exception as e:
+                        print(f"⚠️ ChromeDriver não encontrado em {path}: {e}")
+                
+                if not chromedriver_path:
+                    print("❌ ChromeDriver não encontrado em nenhum local padrão")
+                    # Tentar instalar via webdriver-manager
+                    print("🔄 Tentando instalar ChromeDriver via webdriver-manager...")
+                
+                # Estratégia 1: Usar chromedriver encontrado
+                if chromedriver_path:
+                    try:
+                        print(f"🔧 Tentando com ChromeDriver em {chromedriver_path}")
+                        self.driver = webdriver.Chrome(
+                            service=Service(chromedriver_path),
+                            options=chrome_options
+                        )
+                        print("✅ Driver inicializado com ChromeDriver local")
+                        break
+                    except Exception as e:
+                        print(f"❌ ChromeDriver local falhou: {e}")
+                        
+                # Estratégia 2: Fallback para webdriver-manager
                 try:
-                    self.driver = webdriver.Chrome(
-                        service=Service('/usr/bin/chromedriver'),
-                        options=chrome_options
-                    )
-                    logging.info("✅ Driver inicializado com chromedriver do sistema")
-                    break
-                except Exception as e:
-                    logging.warning(f"ChromeDriver do sistema falhou: {e}")
-                    
-                # Estratégia 2: Usar link simbólico
-                try:
-                    self.driver = webdriver.Chrome(
-                        service=Service('/usr/local/bin/chromedriver'),
-                        options=chrome_options
-                    )
-                    logging.info("✅ Driver inicializado com link simbólico")
-                    break
-                except Exception as e:
-                    logging.warning(f"Link simbólico falhou: {e}")
-                    
-                # Estratégia 3: Fallback para webdriver-manager
-                try:
+                    print("🔧 Tentando com webdriver-manager...")
                     service = Service(ChromeDriverManager().install())
                     self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    logging.info("✅ Driver inicializado com webdriver-manager")
+                    print("✅ Driver inicializado com webdriver-manager")
                     break
                 except Exception as e:
-                    logging.warning(f"Webdriver-manager falhou: {e}")
+                    print(f"❌ Webdriver-manager falhou: {e}")
                     
-                # Estratégia 4: Chrome sem service específico
+                # Estratégia 3: Chrome sem service específico
                 try:
+                    print("🔧 Tentando Chrome sem service específico...")
                     self.driver = webdriver.Chrome(options=chrome_options)
-                    logging.info("✅ Driver inicializado com Chrome padrão")
+                    print("✅ Driver inicializado com Chrome padrão")
                     break
                 except Exception as e:
-                    logging.warning(f"Chrome padrão falhou: {e}")
+                    print(f"❌ Chrome padrão falhou: {e}")
+                    
+                    # Log detalhado do erro
+                    print(f"❌ Erro detalhado: {str(e)}")
+                    if "chrome not reachable" in str(e).lower():
+                        print("💡 Sugestão: Problema com display virtual ou Chrome não instalado")
+                    elif "chromedriver" in str(e).lower():
+                        print("💡 Sugestão: Problema com ChromeDriver - versão incompatível")
+                    elif "permission" in str(e).lower():
+                        print("💡 Sugestão: Problema de permissões")
             
             except Exception as e:
-                logging.error(f"❌ Erro na tentativa {attempt + 1}: {e}")
+                print(f"❌ Erro crítico na tentativa {attempt + 1}: {e}")
                 if self.driver:
                     try:
                         self.driver.quit()
-                    except: pass
+                    except: 
+                        pass
                     self.driver = None
                 
                 if attempt == self.max_retries - 1:
-                    raise Exception(f"Falha crítica ao inicializar Chrome após {self.max_retries} tentativas: {e}")
+                    print("❌ ERRO CRÍTICO: Todas as tentativas falharam")
+                    print("🔍 Dicas de debug:")
+                    print("  - Verificar se o Xvfb está rodando: ps aux | grep Xvfb")
+                    print("  - Verificar se o Chrome está instalado: google-chrome --version")
+                    print("  - Verificar se o ChromeDriver está instalado: chromedriver --version")
+                    print("  - Verificar permissões dos arquivos")
+                    raise Exception(f"Falha crítica ao inicializar Chrome após {self.max_retries} tentativas. Último erro: {e}")
                 
-                time.sleep(2)
+                time.sleep(3)
         
         if self.driver:
-            self.driver.set_page_load_timeout(45)
-            self.driver.implicitly_wait(15)
-            self.wait = WebDriverWait(self.driver, 30)
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            if self.visual_mode:
-                print(f"🌐 Chrome aberto! URL atual: {self.driver.current_url}")
+            try:
+                self.driver.set_page_load_timeout(45)
+                self.driver.implicitly_wait(15)
+                self.wait = WebDriverWait(self.driver, 30)
+                self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+                
+                # Testar se o driver está funcionando
+                self.driver.get("data:text/html,<html><body><h1>Chrome Test</h1></body></html>")
+                print(f"✅ Chrome inicializado com sucesso! URL de teste: {self.driver.current_url}")
+                
+                if self.visual_mode:
+                    print(f"🌐 Chrome visível no display {os.environ.get('DISPLAY')}")
+                    
+            except Exception as e:
+                print(f"❌ Erro no teste pós-inicialização: {e}")
+                raise
 
     def extrair_publicacoes_debug(self, data_inicio: datetime, data_fim: datetime, pause_between_steps: bool = True) -> List[Dict[str, Any]]:
         """Versão debug com navegação completa em cada resultado e paginação"""

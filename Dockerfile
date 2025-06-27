@@ -10,21 +10,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     xvfb \
     unzip \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Add Google Chrome repository and install Chrome + ChromeDriver
+# Add Google Chrome repository and install Chrome
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         google-chrome-stable \
-        chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symbolic links for chromedriver
-RUN ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver \
-    && chmod +x /usr/bin/chromedriver \
-    && chromedriver --version
+# Install ChromeDriver manually with compatibility check
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | sed 's/\.[^.]*$//') \
+    && echo "Chrome major version: $CHROME_VERSION" \
+    && wget -O /tmp/chromedriver.zip "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip" \
+    && unzip /tmp/chromedriver.zip -d /tmp \
+    && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm -rf /tmp/chromedriver.zip /tmp/chromedriver-linux64 \
+    && echo "ChromeDriver instalado:" \
+    && chromedriver --version \
+    && echo "Chrome instalado:" \
+    && google-chrome --version
 
 # Set display environment variable for Xvfb
 ENV DISPLAY=:99
