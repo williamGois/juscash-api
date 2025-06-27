@@ -368,9 +368,24 @@ class DJEScraperDebug:
             print(f"  📅 Aguardando campo de data início...")
             try:
                 data_inicio_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.dtInicio")
-                data_inicio_str = data_inicio.strftime("%d%m%Y")
+                # TENTAR FORMATO COM BARRAS PRIMEIRO
+                data_inicio_str = data_inicio.strftime("%d/%m/%Y")
+                print(f"    🔧 Tentando formato com barras: {data_inicio_str}")
                 self._safe_send_keys(data_inicio_element, data_inicio_str)
-                print(f"    ✅ Data início preenchida: {data_inicio_str}")
+                
+                # Verificar se foi aceito corretamente
+                valor_atual = data_inicio_element.get_attribute('value')
+                print(f"    📋 Valor atual no campo: {valor_atual}")
+                
+                # Se não funcionou, tentar sem barras
+                if valor_atual != data_inicio_str and len(valor_atual) != 10:
+                    print(f"    🔧 Tentando formato sem barras...")
+                    data_inicio_str_sem_barras = data_inicio.strftime("%d%m%Y")
+                    self._safe_send_keys(data_inicio_element, data_inicio_str_sem_barras)
+                    valor_atual = data_inicio_element.get_attribute('value')
+                    print(f"    📋 Valor final no campo: {valor_atual}")
+                
+                print(f"    ✅ Data início preenchida")
             except Exception as e:
                 print(f"  ⚠️ Erro ao preencher data início: {e}")
 
@@ -378,9 +393,24 @@ class DJEScraperDebug:
             print(f"  📅 Aguardando campo de data fim...")
             try:
                 data_fim_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.dtFim")
-                data_fim_str = data_fim.strftime("%d%m%Y")
+                # TENTAR FORMATO COM BARRAS PRIMEIRO
+                data_fim_str = data_fim.strftime("%d/%m/%Y")
+                print(f"    🔧 Tentando formato com barras: {data_fim_str}")
                 self._safe_send_keys(data_fim_element, data_fim_str)
-                print(f"    ✅ Data fim preenchida: {data_fim_str}")
+                
+                # Verificar se foi aceito corretamente
+                valor_atual = data_fim_element.get_attribute('value')
+                print(f"    📋 Valor atual no campo: {valor_atual}")
+                
+                # Se não funcionou, tentar sem barras
+                if valor_atual != data_fim_str and len(valor_atual) != 10:
+                    print(f"    🔧 Tentando formato sem barras...")
+                    data_fim_str_sem_barras = data_fim.strftime("%d%m%Y")
+                    self._safe_send_keys(data_fim_element, data_fim_str_sem_barras)
+                    valor_atual = data_fim_element.get_attribute('value')
+                    print(f"    📋 Valor final no campo: {valor_atual}")
+                
+                print(f"    ✅ Data fim preenchida")
             except Exception as e:
                 print(f"  ⚠️ Erro ao preencher data fim: {e}")
 
@@ -815,7 +845,7 @@ class DJEScraperDebug:
                         if mes:
                             return datetime(int(ano), mes, int(dia))
                     else:
-                        data_str = match.group(1) if len(match.groups()) > 0 else match.group(0)
+                        data_str = match.group(1).strip() if len(match.groups()) > 0 else match.group(0)
                         return datetime.strptime(data_str, "%d/%m/%Y")
                 except:
                     continue
