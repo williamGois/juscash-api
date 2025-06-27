@@ -15,21 +15,36 @@ from bs4 import BeautifulSoup
 import requests
 import tempfile
 import uuid
+import threading
 
 class DJEScraperDebug:
     """
     Versão de debug do DJEScraper que permite visualizar o Chrome em execução
+    e implementa o padrão Singleton para garantir uma única instância.
     """
-    
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            with cls._lock:
+                if not cls._instance:
+                    cls._instance = super(DJEScraperDebug, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self, base_url: str = "https://dje.tjsp.jus.br/cdje/index.do", visual_mode: bool = False):
-        self.base_url = base_url
-        self.session = requests.Session()
-        self.driver = None
-        self.wait = None
-        self.max_retries = 3
-        self.visual_mode = visual_mode  # Se True, roda sem --headless
-        logging.basicConfig(level=logging.INFO)
-        self._initialize_driver()
+        if not hasattr(self, 'initialized'):  # Evitar reinicialização
+            with self._lock:
+                if not hasattr(self, 'initialized'):
+                    self.base_url = base_url
+                    self.session = requests.Session()
+                    self.driver = None
+                    self.wait = None
+                    self.max_retries = 3
+                    self.visual_mode = visual_mode
+                    logging.basicConfig(level=logging.INFO)
+                    self._initialize_driver()
+                    self.initialized = True
 
     def _get_chrome_options(self):
         """Configurações do Chrome - com opção visual para debug"""
@@ -429,17 +444,20 @@ class DJEScraperDebug:
         print(f"🖥️ Tamanho da janela: {self.driver.get_window_size()}")
 
     def close(self):
-        """Fecha o driver"""
+        """Fecha o driver e reseta a instância para permitir recriação."""
         if self.driver:
             try:
                 if self.visual_mode:
-                    input("⏸️ Pressione Enter para fechar o Chrome...")
+                    print("-> Pressione Enter para fechar o Chrome")
                 self.driver.quit()
                 print("✅ Chrome fechado com sucesso")
             except Exception as e:
                 print(f"⚠️ Erro ao fechar driver: {e}")
             finally:
                 self.driver = None
+                self.__class__._instance = None  # Permitir recriação
+                if hasattr(self, 'initialized'):
+                    del self.initialized
 
     def _wait_for_page_load(self, timeout=30):
         """Aguarda o carregamento completo da página"""
