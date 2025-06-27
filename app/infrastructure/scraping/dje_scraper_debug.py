@@ -1097,7 +1097,7 @@ class DJEScraperDebug:
 
     def _find_pdf_url(self, html: str) -> str:
         import re
-        match = re.search(r"https?://[^"]+\.pdf", html, re.IGNORECASE)
+        match = re.search(r'https?://[^"]+\.pdf', html, re.IGNORECASE)
         if match:
             return match.group(0)
         return None
