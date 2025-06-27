@@ -1,7 +1,32 @@
 FROM python:3.11-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends     gcc     libpq-dev     curl     postgresql-client     && rm -rf /var/lib/apt/lists/*
+# Install system dependencies including Chrome and ChromeDriver
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    postgresql-client \
+    wget \
+    gnupg \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Google Chrome repository and install Chrome + ChromeDriver
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        google-chrome-stable \
+        chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symbolic link for chromedriver and set permissions
+RUN ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver \
+    && chmod +x /usr/bin/chromedriver \
+    && chmod +x /usr/local/bin/chromedriver
+
+# Set display environment variable for Xvfb
+ENV DISPLAY=:99
 
 # Set working directory
 WORKDIR /app
@@ -25,4 +50,4 @@ RUN mkdir -p logs
 EXPOSE 5000
 
 # Run the application
-CMD ["python", "run.py"] 
+CMD ["./docker-entrypoint.sh", "python", "run.py"] 

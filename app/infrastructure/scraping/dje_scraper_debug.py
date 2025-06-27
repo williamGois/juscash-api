@@ -137,30 +137,44 @@ class DJEScraperDebug:
                 else:
                     print(f"🎯 Modo: HEADLESS (Chrome oculto)")
                 
-                # Usar chromium-driver diretamente
+                # Estratégia 1: Usar chromedriver do sistema (instalado no Dockerfile)
                 try:
                     self.driver = webdriver.Chrome(
                         service=Service('/usr/bin/chromedriver'),
                         options=chrome_options
                     )
-                    logging.info("✅ Driver inicializado com chromedriver")
+                    logging.info("✅ Driver inicializado com chromedriver do sistema")
                     break
                 except Exception as e:
-                    logging.warning(f"ChromeDriver falhou: {e}")
+                    logging.warning(f"ChromeDriver do sistema falhou: {e}")
                     
-                    # Fallback para webdriver-manager
-                    try:
-                        service = Service(ChromeDriverManager().install())
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        logging.info("✅ Driver inicializado com webdriver-manager")
-                        break
-                    except Exception as e2:
-                        logging.warning(f"Webdriver-manager falhou: {e2}")
-                        
-                        # Último fallback para Chrome do sistema
-                        self.driver = webdriver.Chrome(options=chrome_options)
-                        logging.info("✅ Driver inicializado com Chrome do sistema")
-                        break
+                # Estratégia 2: Usar link simbólico
+                try:
+                    self.driver = webdriver.Chrome(
+                        service=Service('/usr/local/bin/chromedriver'),
+                        options=chrome_options
+                    )
+                    logging.info("✅ Driver inicializado com link simbólico")
+                    break
+                except Exception as e:
+                    logging.warning(f"Link simbólico falhou: {e}")
+                    
+                # Estratégia 3: Fallback para webdriver-manager
+                try:
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    logging.info("✅ Driver inicializado com webdriver-manager")
+                    break
+                except Exception as e:
+                    logging.warning(f"Webdriver-manager falhou: {e}")
+                    
+                # Estratégia 4: Chrome sem service específico
+                try:
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                    logging.info("✅ Driver inicializado com Chrome padrão")
+                    break
+                except Exception as e:
+                    logging.warning(f"Chrome padrão falhou: {e}")
             
             except Exception as e:
                 logging.error(f"❌ Erro na tentativa {attempt + 1}: {e}")

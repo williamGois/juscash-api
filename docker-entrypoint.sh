@@ -5,95 +5,70 @@
 set -e
 
 echo "🚀 Iniciando JusCash API..."
-echo "👤 Executando como usuário: $(whoami)"
-echo "📁 Diretório atual: $(pwd)"
 
-# Verificar permissões do diretório de logs
-if [ -d "/app/logs" ]; then
-    if [ -w "/app/logs" ]; then
-        echo "✅ Diretório de logs tem permissão de escrita"
-    else
-        echo "⚠️  Diretório de logs sem permissão de escrita"
-    fi
+# Verificar se estamos em produção
+if [ "$ENVIRONMENT" = "production" ]; then
+    echo "📦 Ambiente: PRODUÇÃO"
 else
-    echo "📁 Criando diretório de logs..."
-    mkdir -p /app/logs || echo "⚠️  Não foi possível criar diretório de logs"
+    echo "📦 Ambiente: DESENVOLVIMENTO"
 fi
 
-# Verificar e gerar SECRET_KEY se não existir
-if [ -z "$SECRET_KEY" ]; then
-    echo "🔐 Gerando SECRET_KEY..."
-    export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
-    echo "✅ SECRET_KEY gerada: ${SECRET_KEY:0:20}..."
-else
-    echo "✅ SECRET_KEY encontrada: ${SECRET_KEY:0:20}..."
-fi
-
-# Aguardar PostgreSQL
-echo "⏳ Aguardando PostgreSQL..."
-if [ -n "$DATABASE_URL" ]; then
-  export PGPASSWORD=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $4}')
-  DB_HOST=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $5}')
-  DB_PORT=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $6}')
-  DB_USER=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $3}')
-  DB_NAME=$(echo $DATABASE_URL | awk -F'[:@/]' '{print $7}')
-  
-  # Adicionar sslmode=disable para evitar problemas de conexão
-  export DATABASE_URL="$DATABASE_URL?sslmode=disable"
-  
-  LIMIT=30
-  COUNTER=0
-  while [ $COUNTER -lt $LIMIT ]; do
-    if python3 -c "
-import psycopg2
-import os
-try:
-    conn = psycopg2.connect(os.environ['DATABASE_URL'], connect_timeout=5)
-    conn.close()
-    print('PostgreSQL conectado!')
-    exit(0)
-except Exception as e:
-    print(f'Tentativa {i}: {e}')
-    exit(1)
-" 2>/dev/null; then
-        break
-    fi
-    echo "PostgreSQL não está pronto - tentativa $i/30"
-    sleep 3
-    COUNTER=$((COUNTER+1))
-  done
-else
-  echo "⚠️ DATABASE_URL não definida"
-fi
-
-echo "✅ PostgreSQL conectado!"
-
-# Aguardar Redis
-echo "⏳ Aguardando Redis..."
-for i in {1..15}; do
-    if python3 -c "
-import redis
-try:
-    r = redis.Redis(host='redis', port=6379, socket_connect_timeout=5)
-    r.ping()
-    print('Redis conectado!')
-    exit(0)
-except:
-    exit(1)
-" 2>/dev/null; then
-        break
-    fi
-    echo "Redis não está pronto - tentativa $i/15"
+# Inicializar Xvfb para Selenium (se não estiver rodando)
+echo "🖥️ Configurando display virtual para Selenium..."
+if ! pgrep -x "Xvfb" > /dev/null; then
+    echo "🖥️ Iniciando Xvfb..."
+    Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
     sleep 2
-done
+    echo "✅ Xvfb iniciado com sucesso"
+else
+    echo "✅ Xvfb já está rodando"
+fi
 
-echo "✅ Redis conectado!"
+# Verificar ChromeDriver
+echo "🔍 Verificando ChromeDriver..."
+if command -v chromedriver >/dev/null 2>&1; then
+    echo "✅ ChromeDriver encontrado: $(chromedriver --version 2>/dev/null | head -1 || echo 'Versão não disponível')"
+else
+    echo "❌ ChromeDriver não encontrado"
+fi
 
-# Executar migrações
-echo "🔧 Executando migrações..."
-flask db upgrade || echo "⚠️ Erro ao executar migrações (continuando...)"
+# Verificar Google Chrome
+if command -v google-chrome >/dev/null 2>&1; then
+    echo "✅ Google Chrome encontrado: $(google-chrome --version 2>/dev/null || echo 'Versão não disponível')"
+elif command -v chromium >/dev/null 2>&1; then
+    echo "✅ Chromium encontrado: $(chromium --version 2>/dev/null || echo 'Versão não disponível')"
+else
+    echo "❌ Chrome/Chromium não encontrado"
+fi
 
-echo "🎉 Tudo pronto! Iniciando aplicação..."
+# Aguardar banco de dados se especificado
+if [ -n "$DATABASE_URL" ]; then
+    echo "⏳ Aguardando banco de dados..."
+    ./wait-for-it.sh ${DB_HOST:-localhost}:${DB_PORT:-5432} --timeout=30 --strict -- echo "✅ Banco de dados disponível"
+fi
 
-# Executar aplicação
+# Executar migrações se necessário
+if [ "$RUN_MIGRATIONS" = "true" ]; then
+    echo "🔄 Executando migrações do banco de dados..."
+    python -c "
+from app import create_app
+from app.infrastructure.database.models import db
+app = create_app()
+with app.app_context():
+    try:
+        db.create_all()
+        print('✅ Tabelas criadas/atualizadas com sucesso')
+    except Exception as e:
+        print(f'⚠️ Erro nas migrações: {e}')
+"
+fi
+
+# Configurar variáveis de ambiente para Selenium
+export DISPLAY=:99
+export CHROME_BIN=/usr/bin/google-chrome
+export CHROMEDRIVER_PATH=/usr/bin/chromedriver
+
+echo "🌟 Iniciando aplicação..."
+
+# Executar o comando passado
 exec "$@" 
