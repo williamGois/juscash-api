@@ -1840,34 +1840,63 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
                     
                     for publicacao_data in publicacoes_extraidas:
                         try:
+                            print(f"🔍 Processando publicação: {publicacao_data.get('numero_processo', 'N/A')}")
+                            print(f"   📅 Data disponibilização: {publicacao_data.get('data_disponibilizacao')}")
+                            print(f"   👤 Autores: {publicacao_data.get('autores', 'N/A')[:50]}...")
+                            
+                            # Verificar se campos obrigatórios estão presentes
+                            campos_obrigatorios = ['numero_processo', 'data_disponibilizacao', 'autores', 'advogados', 'conteudo_completo']
+                            campos_faltando = []
+                            
+                            for campo in campos_obrigatorios:
+                                valor = publicacao_data.get(campo)
+                                if not valor or valor == 'Não identificado':
+                                    campos_faltando.append(campo)
+                            
+                            if campos_faltando:
+                                print(f"   ⚠️ Campos obrigatórios faltando/inválidos: {campos_faltando}")
+                                print(f"   ⏭️ Pulando esta publicação")
+                                continue
+                                
                             # Verificar se já existe
                             publicacao_existente = repository.find_by_numero_processo(
                                 publicacao_data['numero_processo']
                             )
                             
                             if not publicacao_existente:
+                                print(f"   🆕 Publicação nova, criando entidade...")
+                                
                                 from app.domain.entities.publicacao import Publicacao
                                 
-                                publicacao = Publicacao(
-                                    numero_processo=publicacao_data['numero_processo'],
-                                    data_disponibilizacao=publicacao_data['data_disponibilizacao'],
-                                    autores=publicacao_data['autores'],
-                                    advogados=publicacao_data['advogados'],
-                                    conteudo_completo=publicacao_data['conteudo_completo'],
-                                    valor_principal_bruto=publicacao_data.get('valor_principal_bruto'),
-                                    valor_principal_liquido=publicacao_data.get('valor_principal_liquido'),
-                                    valor_juros_moratorios=publicacao_data.get('valor_juros_moratorios'),
-                                    honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios')
-                                )
-                                
-                                publicacao_salva = repository.create(publicacao)
-                                publicacoes_salvas.append(publicacao_salva)
-                                print(f"✅ Publicação salva: {publicacao_data['numero_processo']}")
+                                try:
+                                    publicacao = Publicacao(
+                                        numero_processo=publicacao_data['numero_processo'],
+                                        data_disponibilizacao=publicacao_data['data_disponibilizacao'],
+                                        autores=publicacao_data['autores'],
+                                        advogados=publicacao_data['advogados'],
+                                        conteudo_completo=publicacao_data['conteudo_completo'],
+                                        valor_principal_bruto=publicacao_data.get('valor_principal_bruto'),
+                                        valor_principal_liquido=publicacao_data.get('valor_principal_liquido'),
+                                        valor_juros_moratorios=publicacao_data.get('valor_juros_moratorios'),
+                                        honorarios_advocaticios=publicacao_data.get('honorarios_advocaticios')
+                                    )
+                                    
+                                    print(f"   ✅ Entidade criada, salvando no banco...")
+                                    publicacao_salva = repository.create(publicacao)
+                                    publicacoes_salvas.append(publicacao_salva)
+                                    print(f"   🎉 Publicação salva com ID: {publicacao_salva.id}")
+                                    
+                                except Exception as entity_error:
+                                    print(f"   ❌ Erro ao criar entidade: {entity_error}")
+                                    print(f"   📋 Dados da publicação: {publicacao_data}")
+                                    continue
+                                    
                             else:
-                                print(f"⏭️ Publicação já existe: {publicacao_data['numero_processo']}")
+                                print(f"   ⏭️ Publicação já existe no banco: {publicacao_data['numero_processo']}")
                                 
                         except Exception as e:
-                            print(f"❌ Erro ao salvar publicação {publicacao_data.get('numero_processo', 'N/A')}: {e}")
+                            print(f"❌ Erro geral ao processar publicação {publicacao_data.get('numero_processo', 'N/A')}: {e}")
+                            print(f"   📋 Dados: {publicacao_data}")
                             continue
                     
                     scraping_status['step'] = f'✅ Concluído! {len(publicacoes_extraidas)} extraídas, {len(publicacoes_salvas)} salvas no BD'
@@ -1969,6 +1998,119 @@ class EnsureXvfb(Resource):
             return {
                 'success': False,
                 'error': str(e),
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
+
+@selenium_visual_ns.route('/fix-chromedriver')
+class FixChromeDriver(Resource):
+    @selenium_visual_ns.doc('fix_chromedriver')
+    def post(self):
+        """Aplica fix automático do ChromeDriver"""
+        import os
+        import shutil
+        import subprocess
+        
+        def log_message(msg):
+            timestamp = datetime.now().strftime('%H:%M:%S')
+            return f"[{timestamp}] {msg}"
+        
+        logs = []
+        
+        try:
+            logs.append(log_message("🔧 Iniciando fix automático do ChromeDriver"))
+            
+            # Configurar DISPLAY
+            os.environ['DISPLAY'] = ':99'
+            logs.append(log_message("🖥️ DISPLAY configurado para :99"))
+            
+            # Verificar se ChromeDriver já está funcionando
+            try:
+                result = subprocess.run(['/usr/local/bin/chromedriver', '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logs.append(log_message(f"✅ ChromeDriver já funciona: {result.stdout.strip()}"))
+                    return {
+                        'success': True,
+                        'message': 'ChromeDriver já está funcionando',
+                        'logs': logs,
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+            except Exception as e:
+                logs.append(log_message(f"❌ ChromeDriver não funciona: {e}"))
+            
+            # Procurar ChromeDriver do webdriver-manager
+            wdm_paths = [
+                '/app/.wdm/drivers/chromedriver/linux64/138.0.7204.49/chromedriver-linux64/chromedriver',
+                '/home/.wdm/drivers/chromedriver/linux64/138.0.7204.49/chromedriver-linux64/chromedriver',
+                '/root/.wdm/drivers/chromedriver/linux64/138.0.7204.49/chromedriver-linux64/chromedriver'
+            ]
+            
+            chromedriver_source = None
+            for path in wdm_paths:
+                if os.path.exists(path):
+                    chromedriver_source = path
+                    logs.append(log_message(f"🔍 ChromeDriver encontrado em: {path}"))
+                    break
+            
+            if not chromedriver_source:
+                logs.append(log_message("❌ ChromeDriver não encontrado no webdriver-manager"))
+                return {
+                    'success': False,
+                    'message': 'ChromeDriver não encontrado',
+                    'logs': logs,
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+            
+            # Copiar ChromeDriver para local correto
+            logs.append(log_message(f"📋 Copiando para /usr/local/bin/chromedriver"))
+            shutil.copy2(chromedriver_source, '/usr/local/bin/chromedriver')
+            
+            # Dar permissão de execução
+            os.chmod('/usr/local/bin/chromedriver', 0o755)
+            logs.append(log_message("✅ Permissões aplicadas"))
+            
+            # Verificar se está funcionando
+            try:
+                result = subprocess.run(['/usr/local/bin/chromedriver', '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logs.append(log_message(f"🎉 Fix aplicado com sucesso! {result.stdout.strip()}"))
+                    
+                    # Limpar scraper global para forçar reinicialização
+                    cleanup_global_scraper()
+                    logs.append(log_message("🔄 Scraper global limpo para reinicialização"))
+                    
+                    return {
+                        'success': True,
+                        'message': 'Fix do ChromeDriver aplicado com sucesso',
+                        'chromedriver_version': result.stdout.strip(),
+                        'logs': logs,
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+                else:
+                    logs.append(log_message("❌ Fix aplicado mas ChromeDriver ainda não funciona"))
+                    return {
+                        'success': False,
+                        'message': 'Fix aplicado mas ChromeDriver não responde',
+                        'logs': logs,
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+                    
+            except Exception as e:
+                logs.append(log_message(f"❌ Erro ao testar ChromeDriver: {e}"))
+                return {
+                    'success': False,
+                    'message': f'Erro ao testar ChromeDriver: {str(e)}',
+                    'logs': logs,
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+                
+        except Exception as e:
+            logs.append(log_message(f"❌ Erro geral: {e}"))
+            return {
+                'success': False,
+                'message': f'Erro ao aplicar fix: {str(e)}',
+                'logs': logs,
                 'timestamp': datetime.now().strftime('%H:%M:%S')
             }
 
