@@ -183,40 +183,40 @@ class PublicacoesList(Resource):
     def get(self):
         """Lista todas as publicações ou filtra por status"""
         try:
-            repository = SQLAlchemyPublicacaoRepository()
+        repository = SQLAlchemyPublicacaoRepository()
         
-            status = request.args.get('status')
-            search = request.args.get('search')
-            limit = request.args.get('limit', type=int)
-            offset = request.args.get('offset', type=int)
+        status = request.args.get('status')
+        search = request.args.get('search')
+        limit = request.args.get('limit', type=int)
+        offset = request.args.get('offset', type=int)
         
-            if search:
-                publicacoes = repository.search_by_content(search, limit or 50)
-            elif status:
-                publicacoes = repository.find_by_status(status, limit, offset)
-            else:
-                publicacoes = repository.find_all(limit, offset)
+        if search:
+            publicacoes = repository.search_by_content(search, limit or 50)
+        elif status:
+            publicacoes = repository.find_by_status(status, limit, offset)
+        else:
+            publicacoes = repository.find_all(limit, offset)
         
-            publicacoes_dict = []
-            for pub in publicacoes:
-                publicacoes_dict.append({
-                    'id': pub.id,
-                    'numero_processo': pub.numero_processo,
-                    'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
-                    'autores': pub.autores,
-                    'advogados': pub.advogados,
-                    'conteudo_completo': pub.conteudo_completo,
-                    'valor_principal_bruto': pub.valor_principal_bruto,
-                    'valor_principal_liquido': pub.valor_principal_liquido,
-                    'valor_juros_moratorios': pub.valor_juros_moratorios,
-                    'honorarios_advocaticios': pub.honorarios_advocaticios,
-                    'reu': pub.reu,
-                    'status': pub.status,
-                    'created_at': pub.created_at.isoformat() if pub.created_at else None,
-                    'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
-                })
+        publicacoes_dict = []
+        for pub in publicacoes:
+            publicacoes_dict.append({
+                'id': pub.id,
+                'numero_processo': pub.numero_processo,
+                'data_disponibilizacao': pub.data_disponibilizacao.isoformat(),
+                'autores': pub.autores,
+                'advogados': pub.advogados,
+                'conteudo_completo': pub.conteudo_completo,
+                'valor_principal_bruto': pub.valor_principal_bruto,
+                'valor_principal_liquido': pub.valor_principal_liquido,
+                'valor_juros_moratorios': pub.valor_juros_moratorios,
+                'honorarios_advocaticios': pub.honorarios_advocaticios,
+                'reu': pub.reu,
+                'status': pub.status,
+                'created_at': pub.created_at.isoformat() if pub.created_at else None,
+                'updated_at': pub.updated_at.isoformat() if pub.updated_at else None
+            })
         
-            return publicacoes_dict
+        return publicacoes_dict
                 
         except Exception as e:
             # Se tabela não existe, retornar array vazio com aviso
@@ -1144,8 +1144,41 @@ import time
 # Namespace para visualização do Selenium
 selenium_visual_ns = Namespace('selenium-visual', description='Visualização do Selenium em tempo real')
 
-# Status global do scraping
-scraping_status = {'active': False, 'step': 'Inativo', 'progress': 0}
+# Status global do scraping visual
+scraping_status = {
+    'active': False,
+    'step': 'Inativo',
+    'progress': 0
+}
+
+# Instância global do scraper para screenshots
+global_scraper = None
+
+def get_or_create_scraper():
+    """Obtém ou cria uma instância do scraper"""
+    global global_scraper
+    
+    if global_scraper is None or global_scraper.driver is None:
+        try:
+            from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+            global_scraper = DJEScraperDebug(visual_mode=False)
+            return global_scraper
+        except Exception as e:
+            print(f"Erro ao criar scraper: {e}")
+            return None
+    
+    return global_scraper
+
+def cleanup_global_scraper():
+    """Limpa a instância global do scraper"""
+    global global_scraper
+    
+    if global_scraper:
+        try:
+            global_scraper.close()
+        except:
+            pass
+        global_scraper = None
 
 @selenium_visual_ns.route('/live')
 class SeleniumLive(Resource):
@@ -1478,30 +1511,67 @@ Aguardando logs do sistema...
             addLog('📸 Capturando screenshot...');
             
             try {
-                const response = await fetch('/api/selenium-visual/screenshot');
-                const data = await response.json();
+                scraper = get_or_create_scraper()
                 
-                if (data.success) {
-                    const img = document.getElementById('screenshot');
-                    const info = document.getElementById('screenshotInfo');
+                if scraper is None or scraper.driver is None:
+                    return {
+                        'success': False,
+                        'error': 'Chrome não está disponível. Inicie um scraping primeiro.',
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+                
+                try:
+                    # Verificar se o driver está respondendo
+                    try:
+                        current_url = scraper.driver.current_url
+                    except:
+                        # Driver não está respondendo, tentar recriar
+                        cleanup_global_scraper()
+                        scraper = get_or_create_scraper()
+                        if scraper is None:
+                            raise Exception("Não foi possível recriar o driver")
+                        current_url = scraper.driver.current_url
                     
-                    img.src = 'data:image/png;base64,' + data.base64_data;
-                    img.style.display = 'block';
-                    info.innerHTML = `
-                        <strong>Screenshot capturado às ${data.timestamp}</strong><br>
-                        URL: ${data.url || 'N/A'}
-                    `;
+                    # Se estiver na página em branco, navegar para o DJE
+                    if current_url == 'data:,' or 'about:blank' in current_url:
+                        scraper.driver.get("https://dje.tjsp.jus.br/cdje/index.do")
+                        time.sleep(2)
+                        current_url = scraper.driver.current_url
                     
-                    screenshotCount++;
-                    document.getElementById('screenshotCount').textContent = screenshotCount;
+                    # Capturar screenshot
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                        screenshot_path = tmp_file.name
                     
-                    addLog('✅ Screenshot atualizado');
-                } else {
-                    addLog('❌ Erro no screenshot: ' + data.error);
+                    scraper.driver.save_screenshot(screenshot_path)
+                    
+                    with open(screenshot_path, 'rb') as img_file:
+                        img_data = img_file.read()
+                        base64_data = base64.b64encode(img_data).decode('utf-8')
+                    
+                    os.unlink(screenshot_path)
+                    
+                    return {
+                        'success': True,
+                        'base64_data': base64_data,
+                        'timestamp': datetime.now().strftime('%H:%M:%S'),
+                        'url': current_url
+                    }
+                    
+                except Exception as e:
+                    # Em caso de erro, limpar o scraper global
+                    cleanup_global_scraper()
+                    return {
+                        'success': False,
+                        'error': f'Erro ao capturar screenshot: {str(e)}',
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    }
+                
+            except Exception as e:
+                return {
+                    'success': False,
+                    'error': str(e),
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
                 }
-            } catch (error) {
-                addLog('❌ Erro: ' + error.message);
-            }
         }
         
         async function stopScraping() {
@@ -1612,26 +1682,43 @@ class VisualScreenshot(Resource):
     def get(self):
         """Captura screenshot atual"""
         try:
-            from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+            scraper = get_or_create_scraper()
             
-            scraper = DJEScraperDebug(visual_mode=False)
+            if scraper is None or scraper.driver is None:
+                return {
+                    'success': False,
+                    'error': 'Chrome não está disponível. Inicie um scraping primeiro.',
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
             
             try:
-                current_url = scraper.driver.current_url
-                if current_url == 'data:,':
+                # Verificar se o driver está respondendo
+                try:
+                    current_url = scraper.driver.current_url
+                except:
+                    # Driver não está respondendo, tentar recriar
+                    cleanup_global_scraper()
+                    scraper = get_or_create_scraper()
+                    if scraper is None:
+                        raise Exception("Não foi possível recriar o driver")
+                    current_url = scraper.driver.current_url
+                    
+                # Se estiver na página em branco, navegar para o DJE
+                if current_url == 'data:,' or 'about:blank' in current_url:
                     scraper.driver.get("https://dje.tjsp.jus.br/cdje/index.do")
                     time.sleep(2)
                     current_url = scraper.driver.current_url
-                
+                    
+                # Capturar screenshot
                 with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
                     screenshot_path = tmp_file.name
-                
+                    
                 scraper.driver.save_screenshot(screenshot_path)
                 
                 with open(screenshot_path, 'rb') as img_file:
                     img_data = img_file.read()
                     base64_data = base64.b64encode(img_data).decode('utf-8')
-                
+                    
                 os.unlink(screenshot_path)
                 
                 return {
@@ -1641,8 +1728,14 @@ class VisualScreenshot(Resource):
                     'url': current_url
                 }
                 
-            finally:
-                scraper.close()
+            except Exception as e:
+                # Em caso de erro, limpar o scraper global
+                cleanup_global_scraper()
+                return {
+                    'success': False,
+                    'error': f'Erro ao capturar screenshot: {str(e)}',
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
                 
         except Exception as e:
             return {
@@ -1670,20 +1763,28 @@ class StopVisualScraping(Resource):
         scraping_status['step'] = 'Parado pelo usuário'
         scraping_status['progress'] = 0
         
+        # Limpar o scraper global
+        cleanup_global_scraper()
+        
         return {'success': True, 'message': 'Scraping visual parado'}
 
 def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
     """Thread que executa o scraping visual"""
-    global scraping_status
+    global scraping_status, global_scraper
     
     scraping_status['active'] = True
     scraping_status['step'] = 'Inicializando Chrome...'
     scraping_status['progress'] = 5
     
     try:
-        from app.infrastructure.scraping.dje_scraper_debug import DJEScraperDebug
+        # Limpar scraper anterior se existir
+        cleanup_global_scraper()
         
-        scraper = DJEScraperDebug(visual_mode=False)
+        # Criar novo scraper
+        scraper = get_or_create_scraper()
+        
+        if scraper is None:
+            raise Exception("Não foi possível inicializar o Chrome")
         
         try:
             # Usar o método debug que tem todos os fallbacks
@@ -1696,18 +1797,21 @@ def run_visual_scraping_thread(data_inicio: datetime, data_fim: datetime):
             scraping_status['step'] = f'✅ Concluído! {len(publicacoes)} publicações extraídas'
             scraping_status['progress'] = 100
             
-            # Aguardar antes de finalizar
+            # Aguardar antes de finalizar (mantém o scraper ativo para screenshots)
             time.sleep(10)
             
-        finally:
-            scraper.close()
+        except Exception as e:
+            scraping_status['step'] = f'❌ Erro: {str(e)}'
+            scraping_status['progress'] = 0
+            # Não fechar o scraper em caso de erro, para permitir screenshots
             
     except Exception as e:
         scraping_status['step'] = f'❌ Erro: {str(e)}'
         scraping_status['progress'] = 0
+        cleanup_global_scraper()
     
     finally:
-        # Resetar após 60 segundos
+        # Resetar status após 60 segundos, mas manter scraper ativo
         time.sleep(60)
         if scraping_status['active']:
             scraping_status['active'] = False
