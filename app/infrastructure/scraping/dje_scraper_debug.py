@@ -620,8 +620,11 @@ class DJEScraperDebug:
                                                             pdf_url = match
                                                         self.log(f"        📄 PDF URL encontrada: {pdf_url}")
                                                         break
-                                        if pdf_url:
-                                            break
+                                            if pdf_url:
+                                                break
+                                    except Exception as e:
+                                        self.log(f"        ⚠️ Erro ao buscar PDF no HTML: {e}")
+                                        pdf_url = None
                                     
                                     # Se não encontrou URL direta, tentar navegar pelos frames
                                     if not pdf_url and frames:
