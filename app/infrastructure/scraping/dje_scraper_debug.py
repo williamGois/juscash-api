@@ -255,19 +255,54 @@ class DJEScraperDebug:
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para continuar para o preenchimento do formulário...")
 
-            # Etapa 2: Preencher formulário
-            print("📍 Etapa 2: Preenchendo formulário de pesquisa...")
+            # Etapa 2: Preencher período de datas (OPCIONAL - comentar para teste)
+            print("📍 Etapa 2: Preenchendo período de datas...")
+            
+            # TESTE: Comentar esta seção para fazer busca sem filtro de data
+            # try:
+            #     # Aguardar campo data início
+            #     print("  📅 Preenchendo data de início...")
+            #     data_inicio_field = self._wait_for_element_ready(By.ID, "dataInicio")
+            #     data_inicio_str = data_inicio.strftime("%d%m%Y")
+            #     self._safe_send_keys(data_inicio_field, data_inicio_str)
+            #
+            #     # Aguardar campo data fim
+            #     print("  📅 Preenchendo data de fim...")
+            #     data_fim_field = self._wait_for_element_ready(By.ID, "dataFim")
+            #     data_fim_str = data_fim.strftime("%d%m%Y")
+            #     self._safe_send_keys(data_fim_field, data_fim_str)
+            #
+            #     print(f"  ✅ Período configurado: {data_inicio_str} a {data_fim_str}")
+            # except Exception as e:
+            #     print(f"  ⚠️ Erro ao configurar datas: {e}")
+            
+            # TESTE TEMPORÁRIO: Pular configuração de data para ver se encontra resultados gerais
+            print("  🚧 TESTE: Pulando configuração de data para busca geral...")
+            time.sleep(2)
+
+            # Etapa 3: Preencher formulário
+            print("📍 Etapa 3: Preenchendo formulário de pesquisa...")
             
             # Aguardar campo data início estar disponível e interagível
-            print(f"  📅 Aguardando campo data início...")
-            data_inicio_field = self._wait_for_element_ready(By.ID, "dtInicioString")
-            self._safe_send_keys(data_inicio_field, data_inicio.strftime("%d/%m/%Y"))
-            
-            # Aguardar campo data fim estar disponível
-            print(f"  📅 Aguardando campo data fim...")
-            data_fim_field = self._wait_for_element_ready(By.ID, "dtFimString")
-            self._safe_send_keys(data_fim_field, data_fim.strftime("%d/%m/%Y"))
-            
+            print("  📅 Aguardando campo de data início...")
+            try:
+                data_inicio_field = self._wait_for_element_ready(By.ID, "dataInicio")
+                data_inicio_str = data_inicio.strftime("%d%m%Y")
+                self._safe_send_keys(data_inicio_field, data_inicio_str)
+                print(f"  ✅ Data início preenchida: {data_inicio_str}")
+            except Exception as e:
+                print(f"  ⚠️ Erro ao preencher data início: {e}")
+
+            # Aguardar campo data fim estar disponível e interagível  
+            print("  📅 Aguardando campo de data fim...")
+            try:
+                data_fim_field = self._wait_for_element_ready(By.ID, "dataFim")
+                data_fim_str = data_fim.strftime("%d%m%Y")
+                self._safe_send_keys(data_fim_field, data_fim_str)
+                print(f"  ✅ Data fim preenchida: {data_fim_str}")
+            except Exception as e:
+                print(f"  ⚠️ Erro ao preencher data fim: {e}")
+
             # Aguardar select caderno estar disponível
             print("  📂 Aguardando select caderno...")
             select_caderno_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.cdCaderno")
@@ -289,13 +324,13 @@ class DJEScraperDebug:
             # Aguardar campo de busca estar disponível
             print("  🔍 Aguardando campo de busca...")
             search_box = self._wait_for_element_ready(By.ID, "procura")
-            self._safe_send_keys(search_box, '"instituto nacional do seguro social" E inss')
+            self._safe_send_keys(search_box, '"RPV" e "pagamento pelo INSS"')
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para submeter o formulário...")
             
-            # Etapa 3: Submeter formulário
-            print("📍 Etapa 3: Submetendo formulário...")
+            # Etapa 4: Submeter formulário
+            print("📍 Etapa 4: Submetendo formulário...")
             
             # Aguardar botão submit estar disponível
             print("  🔘 Aguardando botão submit...")
@@ -308,8 +343,8 @@ class DJEScraperDebug:
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para processar os resultados...")
 
-            # Etapa 4: Processar TODAS as páginas de resultados
-            print("📍 Etapa 4: Processando TODAS as páginas de resultados...")
+            # Etapa 5: Processar TODAS as páginas de resultados
+            print("📍 Etapa 5: Processando TODAS as páginas de resultados...")
             all_publicacoes = []
             page_num = 1
             
@@ -329,39 +364,92 @@ class DJEScraperDebug:
                     
                     soup = BeautifulSoup(driver.page_source, 'html.parser')
                     
-                    # Buscar por elementos de publicação (links clicáveis)
-                    publicacao_links = soup.select('div#divResultadosInferior a[href*="consultaSimples.do"]')
+                    # DEBUG: Verificar conteúdo da página
+                    print(f"    🔍 URL atual: {driver.current_url}")
+                    print(f"    🔍 Título da página: {driver.title}")
                     
-                    if not publicacao_links and page_num == 1:
+                    # Verificar se há div de resultados
+                    div_resultados = soup.find('div', id='divResultadosInferior')
+                    if div_resultados:
+                        print(f"    📋 Div divResultadosInferior encontrado com {len(div_resultados.get_text())} caracteres")
+                        
+                        # Verificar se há texto "nenhum resultado"  
+                        texto_resultados = div_resultados.get_text().lower()
+                        if "nenhum" in texto_resultados or "não foram encontrados" in texto_resultados or "sem resultados" in texto_resultados:
+                            print(f"    ℹ️ Mensagem de nenhum resultado detectada na página {page_num}")
+                            if page_num == 1:
+                                print("    ℹ️ Nenhuma publicação encontrada para os critérios definidos.")
+                                break
+                        
+                        # Verificar quantidade de resultados
+                        total_text = driver.page_source
+                        if "Resultados 1 a" in total_text:
+                            import re
+                            match = re.search(r'Resultados \d+ a \d+ de (\d+)', total_text)
+                            if match:
+                                total = int(match.group(1))
+                                print(f"    📊 Total de resultados encontrados: {total}")
+                    else:
+                        print(f"    ⚠️ Div divResultadosInferior não encontrado na página {page_num}")
+                    
+                    # Buscar por elementos de publicação usando a estrutura correta
+                    print(f"    🔍 Procurando links com onclick que contém consultaSimples.do...")
+                    
+                    # NOVA ABORDAGEM: Primeiro buscar TODOS os links onclick na página
+                    all_onclick_links = driver.find_elements(By.XPATH, "//a[@onclick]")
+                    print(f"    📋 Total de links com onclick na página: {len(all_onclick_links)}")
+                    
+                    # Filtrar apenas os que contém consultaSimples.do
+                    publicacao_elements = []
+                    for link in all_onclick_links:
+                        onclick_attr = link.get_attribute('onclick')
+                        if onclick_attr and 'consultaSimples.do' in onclick_attr:
+                            publicacao_elements.append(link)
+                            print(f"      🔗 Link encontrado: {onclick_attr[:100]}...")
+                    
+                    # Se ainda não encontrou, tentar com seletor mais amplo
+                    if not publicacao_elements:
+                        # Buscar qualquer link que mencione consultaSimples
+                        broader_links = driver.find_elements(By.XPATH, "//*[contains(@onclick, 'consultaSimples')]")
+                        print(f"    📋 Busca mais ampla encontrou {len(broader_links)} elementos")
+                        
+                        for link in broader_links:
+                            onclick_attr = link.get_attribute('onclick')
+                            print(f"      🔗 Elemento broader: {onclick_attr[:100]}...")
+                            if 'consultaSimples.do' in onclick_attr:
+                                publicacao_elements.append(link)
+                    
+                    if not publicacao_elements and page_num == 1:
                         print("    ℹ️ Nenhuma publicação encontrada para os critérios definidos.")
                         break
-                    elif not publicacao_links:
+                    elif not publicacao_elements:
                         print(f"    ℹ️ Fim dos resultados na página {page_num}")
                         break
                     else:
-                        print(f"    📋 Encontrados {len(publicacao_links)} links de publicações na página {page_num}")
+                        print(f"    📋 Processando {len(publicacao_elements)} publicações na página {page_num}")
                         
-                        # Processar cada link de publicação
-                        for i, link in enumerate(publicacao_links, 1):
-                            print(f"      🔍 Processando publicação {i}/{len(publicacao_links)} da página {page_num}...")
+                        # Processar cada elemento de publicação
+                        for i, element in enumerate(publicacao_elements, 1):
+                            print(f"      🔍 Processando publicação {i}/{len(publicacao_elements)} da página {page_num}...")
                             
                             try:
-                                # Obter URL do link
-                                href = link.get('href')
-                                if href:
-                                    # Construir URL completa
-                                    if href.startswith('/'):
-                                        full_url = f"https://dje.tjsp.jus.br{href}"
-                                    elif href.startswith('consultaSimples.do'):
-                                        full_url = f"https://dje.tjsp.jus.br/cdje/{href}"
-                                    else:
-                                        full_url = href
+                                # Obter o onclick para debug
+                                onclick_attr = element.get_attribute('onclick')
+                                print(f"        📋 Onclick: {onclick_attr}")
+                                
+                                # Extrair URL do onclick
+                                match = re.search(r"popup\('([^']+)'\)", onclick_attr or '')
+                                if match:
+                                    relative_url = match.group(1)
+                                    full_url = f"https://dje.tjsp.jus.br{relative_url}"
+                                    print(f"        🌐 URL extraída: {full_url}")
                                     
-                                    print(f"        🌐 Navegando para: {full_url}")
+                                    # Abrir a publicação em nova aba/janela
+                                    driver.execute_script(f"window.open('{full_url}', '_blank');")
                                     
-                                    # Navegar para a página específica da publicação
-                                    driver.get(full_url)
-                                    time.sleep(2)
+                                    # Mudar para a nova aba
+                                    driver.switch_to.window(driver.window_handles[-1])
+                                    time.sleep(3)
                                     
                                     # Extrair dados detalhados desta página
                                     publicacao_data = self._extrair_dados_pagina_individual(driver)
@@ -375,55 +463,68 @@ class DJEScraperDebug:
                                     else:
                                         print(f"        ⚠️ Não foi possível extrair dados desta publicação")
                                     
-                                    # Voltar para a página de resultados
-                                    driver.back()
-                                    time.sleep(2)
+                                    # Fechar a aba atual e voltar para a original
+                                    driver.close()
+                                    driver.switch_to.window(driver.window_handles[0])
+                                    time.sleep(1)
                                     
+                                else:
+                                    print(f"        ⚠️ Não foi possível extrair URL do onclick do elemento {i}")
+                                    continue
+                            
                             except Exception as e:
                                 print(f"        ❌ Erro ao processar publicação {i}: {e}")
-                                # Tentar voltar para a página de resultados em caso de erro
+                                # Certificar que estamos na aba correta
                                 try:
-                                    driver.back()
-                                    time.sleep(1)
+                                    if len(driver.window_handles) > 1:
+                                        driver.close()
+                                        driver.switch_to.window(driver.window_handles[0])
                                 except:
-                                    # Se back() falhar, navegar novamente para os resultados
-                                    # (seria necessário resubmeter o formulário)
                                     pass
                                 continue
                     
                     # Tentar ir para a próxima página
                     print(f"    🔄 Procurando link para próxima página...")
                     try:
-                        # Atualizar o soup com a página atual
-                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                        # Procurar por botão "Próximo" ou link de próxima página
+                        next_page_found = False
                         
-                        # Procurar por links de paginação
-                        next_links = soup.select('a[href*="nuSeqpagina"]')
-                        next_page_link = None
+                        # Tentar encontrar link "Próximo" primeiro
+                        try:
+                            next_button = driver.find_element(By.XPATH, "//a[contains(text(), 'Próximo') or contains(text(), '>')]")
+                            onclick_attr = next_button.get_attribute('onclick')
+                            print(f"    📄 Botão próximo encontrado: {onclick_attr}")
+                            
+                            # Clicar no botão próximo
+                            driver.execute_script("arguments[0].click();", next_button)
+                            time.sleep(4)
+                            page_num += 1
+                            next_page_found = True
+                            print(f"    📄 Navegou para página {page_num}")
+                            
+                        except Exception as e:
+                            print(f"    ⚠️ Botão 'Próximo' não encontrado: {e}")
                         
-                        for link in next_links:
-                            if 'próximo' in link.get_text().lower() or '>' in link.get_text():
-                                next_page_link = link
-                                break
-                        
-                        if next_page_link:
-                            href = next_page_link.get('href')
-                            if href:
-                                print(f"    📄 Navegando para próxima página...")
+                        # Se não encontrou botão próximo, tentar pelos números das páginas
+                        if not next_page_found:
+                            try:
+                                # Procurar por link da próxima página (número)
+                                next_page_num = page_num + 1
+                                page_link = driver.find_element(By.XPATH, f"//a[contains(@onclick, 'trocaDePg({next_page_num})')]")
                                 
-                                # Construir URL da próxima página
-                                if href.startswith('/'):
-                                    next_url = f"https://dje.tjsp.jus.br{href}"
-                                else:
-                                    next_url = f"https://dje.tjsp.jus.br/cdje/{href}"
+                                print(f"    📄 Link da página {next_page_num} encontrado")
+                                driver.execute_script("arguments[0].click();", page_link)
+                                time.sleep(4)
+                                page_num = next_page_num
+                                next_page_found = True
+                                print(f"    📄 Navegou para página {page_num}")
                                 
-                                driver.get(next_url)
-                                time.sleep(3)
-                                page_num += 1
-                                continue
+                            except Exception as e:
+                                print(f"    ⚠️ Link da página {next_page_num} não encontrado: {e}")
                         
-                        print(f"    🏁 Não há mais páginas. Finalizada na página {page_num}")
-                        break
+                        if not next_page_found:
+                            print(f"    🏁 Não há mais páginas. Finalizada na página {page_num}")
+                            break
                         
                     except Exception as e:
                         print(f"    ❌ Erro ao navegar para próxima página: {e}")
@@ -451,7 +552,7 @@ class DJEScraperDebug:
         """Extrai dados detalhados de uma página individual de publicação"""
         try:
             # Aguardar a página carregar
-            time.sleep(2)
+            time.sleep(3)
             
             # Obter HTML da página
             soup = BeautifulSoup(driver.page_source, 'html.parser')
@@ -462,90 +563,56 @@ class DJEScraperDebug:
             # Tentar diferentes seletores para encontrar o conteúdo
             content_selectors = [
                 'div.ementaClass2',
-                'div.ementaClass',
+                'div.ementaClass', 
                 'td.ementaClass2',
                 'td.ementaClass',
                 '.fundocinza1',
-                'tbody tr td'
+                'tbody tr td',
+                'frame[name="bottomFrame"]',  # Para capturar conteúdo de frames
+                'body'
             ]
             
             for selector in content_selectors:
                 elements = soup.select(selector)
                 if elements:
-                    conteudo_completo = ' '.join([el.get_text(strip=True) for el in elements])
-                    if conteudo_completo:
+                    conteudo_completo = ' '.join([el.get_text(strip=True) for el in elements if el.get_text(strip=True)])
+                    if conteudo_completo and len(conteudo_completo) > 100:  # Só aceitar se houver conteúdo substancial
                         break
             
             # Se não encontrou com seletores específicos, pegar todo o texto da página
-            if not conteudo_completo:
+            if not conteudo_completo or len(conteudo_completo) < 100:
                 body = soup.find('body')
                 if body:
                     conteudo_completo = body.get_text(strip=True)
             
-            if not conteudo_completo:
-                print(f"        ⚠️ Não foi possível extrair conteúdo da página")
+            if not conteudo_completo or len(conteudo_completo) < 50:
+                print(f"        ⚠️ Conteúdo insuficiente extraído da página")
                 return None
             
-            # Extrair número do processo
+            # Extrair número do processo com padrões mais específicos
             numero_processo = self._extrair_numero_processo(conteudo_completo)
-            if not numero_processo:
-                print(f"        ⚠️ Não foi possível extrair número do processo")
-                return None
             
-            # Extrair data de disponibilização
-            data_disponibilizacao = None
-            data_patterns = [
-                r'(\d{2}/\d{2}/\d{4})',
-                r'data[:\s]+(\d{2}/\d{2}/\d{4})',
-                r'disponibiliza[^:]*:?\s*(\d{2}/\d{2}/\d{4})'
-            ]
+            # Extrair data de disponibilização (procurar por padrões de data)
+            data_disponibilizacao = self._extrair_data_disponibilizacao(conteudo_completo)
             
-            for pattern in data_patterns:
-                match = re.search(pattern, conteudo_completo, re.IGNORECASE)
-                if match:
-                    try:
-                        data_disponibilizacao = datetime.strptime(match.group(1), "%d/%m/%Y")
-                        break
-                    except:
-                        continue
+            # Extrair informações de RPV específicas
+            autor_info = self._extrair_autor_rpv(conteudo_completo)
+            advogado_info = self._extrair_advogado_rpv(conteudo_completo) 
             
-            # Extrair informações financeiras com padrões mais abrangentes
-            valor_principal_bruto = self._extrair_valor_monetario(conteudo_completo, [
-                r'valor\s+principal\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
-                r'principal\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
-                r'bruto[:\s]*R?\$?\s*([\d.,]+)',
-                r'valor\s+bruto[:\s]*R?\$?\s*([\d.,]+)'
-            ])
-            
-            valor_principal_liquido = self._extrair_valor_monetario(conteudo_completo, [
-                r'valor\s+principal\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
-                r'principal\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
-                r'líquido[:\s]*R?\$?\s*([\d.,]+)',
-                r'valor\s+líquido[:\s]*R?\$?\s*([\d.,]+)'
-            ])
-            
-            valor_juros_moratorios = self._extrair_valor_monetario(conteudo_completo, [
-                r'juros\s+moratórios[:\s]*R?\$?\s*([\d.,]+)',
-                r'juros[:\s]*R?\$?\s*([\d.,]+)',
-                r'moratórios[:\s]*R?\$?\s*([\d.,]+)'
-            ])
-            
-            honorarios_advocaticios = self._extrair_valor_monetario(conteudo_completo, [
-                r'honorários\s+advocatícios[:\s]*R?\$?\s*([\d.,]+)',
-                r'honorários[:\s]*R?\$?\s*([\d.,]+)',
-                r'advocatícios[:\s]*R?\$?\s*([\d.,]+)'
-            ])
+            # Extrair valores monetários específicos para RPV
+            valores = self._extrair_valores_rpv(conteudo_completo)
             
             return {
-                'numero_processo': numero_processo,
+                'numero_processo': numero_processo or 'Não identificado',
                 'data_disponibilizacao': data_disponibilizacao,
-                'autores': self._extrair_autores(conteudo_completo) or 'Não identificado',
-                'advogados': self._extrair_advogados(conteudo_completo) or 'Não identificado',
+                'autores': autor_info or 'Não identificado', 
+                'advogados': advogado_info or 'Não identificado',
                 'conteudo_completo': conteudo_completo,
-                'valor_principal_bruto': valor_principal_bruto,
-                'valor_principal_liquido': valor_principal_liquido,
-                'valor_juros_moratorios': valor_juros_moratorios,
-                'honorarios_advocaticios': honorarios_advocaticios,
+                'valor_principal_bruto': valores.get('bruto'),
+                'valor_principal_liquido': valores.get('liquido'),
+                'valor_juros_moratorios': valores.get('juros'),
+                'honorarios_advocaticios': valores.get('honorarios'),
+                'reu': 'Instituto Nacional do Seguro Social - INSS',  # Sempre INSS conforme solicitado
                 'url_origem': driver.current_url
             }
             
@@ -554,34 +621,139 @@ class DJEScraperDebug:
             return None
 
     def _extrair_numero_processo(self, texto: str) -> str:
-        match = re.search(r'\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}', texto)
-        return match.group(0) if match else None
-
-    def _extrair_autores(self, texto: str) -> str:
+        """Extrai número do processo com padrões específicos"""
+        # Padrão padrão: 0000000-00.0000.0.00.0000
         patterns = [
-            r'(?:Apelante|Requerente|Exequente)s?:?\s*([^,(\n]+)',
-            r'Autor[es]*:?\s*([^,(\n]+)'
+            r'\b\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}\b',
+            r'\b\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}\b',
+            r'Processo\s+n[ºo°\.]*\s*(\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4})',
+            r'Proc\.*\s*(\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4})',
+            r'Autos\s+n[ºo°\.]*\s*(\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4})'
         ]
+        
         for pattern in patterns:
             match = re.search(pattern, texto, re.IGNORECASE)
             if match:
-                return match.group(1).strip()
+                return match.group(1) if len(match.groups()) > 0 else match.group(0)
         return None
 
-    def _extrair_advogados(self, texto: str) -> str:
-        matches = re.findall(r'Advogad[oa]:\s*([^(\n]+?)\s*\(OAB:\s*\d+/[A-Z]{2}\)', texto, re.IGNORECASE)
-        return ', '.join(set([adv.strip() for adv in matches])) if matches else None
-
-    def _extrair_valor_monetario(self, texto: str, patterns: List[str]) -> float:
+    def _extrair_data_disponibilizacao(self, texto: str) -> datetime:
+        """Extrai data de disponibilização"""
+        patterns = [
+            r'(\d{2}/\d{2}/\d{4})',
+            r'data[:\s]+(\d{2}/\d{2}/\d{4})',
+            r'disponibiliza[^:]*:?\s*(\d{2}/\d{2}/\d{4})',
+            r'publicad[oa]\s+em[:\s]*(\d{2}/\d{2}/\d{4})',
+            r'(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})'
+        ]
+        
         for pattern in patterns:
             match = re.search(pattern, texto, re.IGNORECASE)
             if match:
-                valor_str = match.group(1).replace('.', '').replace(',', '.')
                 try:
-                    return float(valor_str)
-                except ValueError:
+                    if len(match.groups()) == 3:  # Formato "1 de janeiro de 2025"
+                        dia, mes_nome, ano = match.groups()
+                        meses = {'janeiro': 1, 'fevereiro': 2, 'março': 3, 'abril': 4, 'maio': 5, 'junho': 6,
+                               'julho': 7, 'agosto': 8, 'setembro': 9, 'outubro': 10, 'novembro': 11, 'dezembro': 12}
+                        mes = meses.get(mes_nome.lower())
+                        if mes:
+                            return datetime(int(ano), mes, int(dia))
+                    else:
+                        data_str = match.group(1) if len(match.groups()) > 0 else match.group(0)
+                        return datetime.strptime(data_str, "%d/%m/%Y")
+                except:
                     continue
         return None
+
+    def _extrair_autor_rpv(self, texto: str) -> str:
+        """Extrai informações do autor em casos de RPV"""
+        patterns = [
+            r'(?:Requerente|Autor|Exequente|Beneficiário)[:\s]*([^,\n\r]+?)(?:\s+(?:CPF|RG|contra)|,|\n|\r|$)',
+            r'RPV\s+em\s+favor\s+de[:\s]*([^,\n\r]+?)(?:\s+(?:CPF|RG|contra)|,|\n|\r|$)',
+            r'beneficiário[:\s]*([^,\n\r]+?)(?:\s+(?:CPF|RG|contra)|,|\n|\r|$)',
+            r'em\s+face\s+de[:\s]*([^,\n\r]+?)(?:\s+(?:CPF|RG|contra)|,|\n|\r|$)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, texto, re.IGNORECASE)
+            if match:
+                autor = match.group(1).strip()
+                # Limpar texto desnecessário
+                autor = re.sub(r'\s+', ' ', autor)
+                autor = re.sub(r'[,\.\:]$', '', autor)
+                if len(autor) > 3 and not re.match(r'^\d+$', autor):  # Evitar números puros
+                    return autor
+        return None
+
+    def _extrair_advogado_rpv(self, texto: str) -> str:
+        """Extrai informações do advogado em casos de RPV"""
+        patterns = [
+            r'Advogad[oa][:\s]*([^(\n\r]+?)\s*\(OAB[:\s]*(\d+/[A-Z]{2})\)',
+            r'Dr[aª]?\.\s*([^(\n\r]+?)\s*\(OAB[:\s]*(\d+/[A-Z]{2})\)',
+            r'([A-ZÁÊÇ][a-záêçõã]+(?:\s+[A-ZÁÊÇ][a-záêçõã]+)*)\s*\(OAB[:\s]*(\d+/[A-Z]{2})\)',
+            r'representad[oa]\s+por[:\s]*([^(\n\r]+?)\s*\(OAB[:\s]*(\d+/[A-Z]{2})\)'
+        ]
+        
+        advogados = []
+        for pattern in patterns:
+            matches = re.finditer(pattern, texto, re.IGNORECASE)
+            for match in matches:
+                nome = match.group(1).strip()
+                oab = match.group(2).strip() if len(match.groups()) > 1 else ''
+                # Limpar nome
+                nome = re.sub(r'\s+', ' ', nome)
+                nome = re.sub(r'[,\.\:]$', '', nome)
+                if len(nome) > 3:
+                    advogado_info = f"{nome} (OAB: {oab})" if oab else nome
+                    if advogado_info not in advogados:
+                        advogados.append(advogado_info)
+        
+        return ', '.join(advogados) if advogados else None
+
+    def _extrair_valores_rpv(self, texto: str) -> Dict[str, float]:
+        """Extrai valores monetários específicos para RPV"""
+        valores = {'bruto': None, 'liquido': None, 'juros': None, 'honorarios': None}
+        
+        # Padrões para valores monetários
+        patterns = {
+            'bruto': [
+                r'valor\s+principal\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
+                r'principal\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
+                r'valor\s+bruto[:\s]*R?\$?\s*([\d.,]+)',
+                r'montante\s+bruto[:\s]*R?\$?\s*([\d.,]+)'
+            ],
+            'liquido': [
+                r'valor\s+principal\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
+                r'principal\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
+                r'valor\s+líquido[:\s]*R?\$?\s*([\d.,]+)',
+                r'montante\s+líquido[:\s]*R?\$?\s*([\d.,]+)'
+            ],
+            'juros': [
+                r'juros\s+moratórios[:\s]*R?\$?\s*([\d.,]+)',
+                r'juros[:\s]*R?\$?\s*([\d.,]+)',
+                r'moratórios[:\s]*R?\$?\s*([\d.,]+)',
+                r'correção\s+monetária[:\s]*R?\$?\s*([\d.,]+)'
+            ],
+            'honorarios': [
+                r'honorários\s+advocatícios[:\s]*R?\$?\s*([\d.,]+)',
+                r'honorários[:\s]*R?\$?\s*([\d.,]+)',
+                r'advocatícios[:\s]*R?\$?\s*([\d.,]+)',
+                r'sucumbência[:\s]*R?\$?\s*([\d.,]+)'
+            ]
+        }
+        
+        for tipo, pattern_list in patterns.items():
+            for pattern in pattern_list:
+                match = re.search(pattern, texto, re.IGNORECASE)
+                if match:
+                    try:
+                        valor_str = match.group(1).replace('.', '').replace(',', '.')
+                        valores[tipo] = float(valor_str)
+                        break  # Parar no primeiro valor encontrado para cada tipo
+                    except ValueError:
+                        continue
+        
+        return valores
 
     def take_screenshot(self, filename: str = None):
         """Tira screenshot da página atual"""
