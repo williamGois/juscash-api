@@ -183,7 +183,7 @@ class PublicacoesList(Resource):
     def get(self):
         """Lista todas as publicações ou filtra por status"""
         try:
-                    repository = SQLAlchemyPublicacaoRepository()
+            repository = SQLAlchemyPublicacaoRepository()
             
             status = request.args.get('status')
             search = request.args.get('search')
