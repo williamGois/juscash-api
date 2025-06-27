@@ -13,79 +13,56 @@ else
     echo "📦 Ambiente: DESENVOLVIMENTO"
 fi
 
-# Inicializar Xvfb para Selenium (se não estiver rodando)
-echo "🖥️ Configurando display virtual para Selenium..."
+# Aguardar serviços ficarem prontos
+echo "🔄 Aguardando serviços..."
+./wait-for-it.sh db_prod:5432 --timeout=60 --strict -- echo "✅ PostgreSQL pronto"
+./wait-for-it.sh redis_prod:6379 --timeout=60 --strict -- echo "✅ Redis pronto"
+
+# Configurar display para Selenium
+export DISPLAY=:99
+
+# Verificar e instalar Xvfb se necessário
 if ! pgrep -x "Xvfb" > /dev/null; then
     echo "🖥️ Iniciando Xvfb..."
-    Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
-    sleep 2
-    echo "✅ Xvfb iniciado com sucesso"
+    Xvfb :99 -screen 0 1920x1080x24 &
+    sleep 3
+    echo "✅ Xvfb iniciado"
 else
     echo "✅ Xvfb já está rodando"
 fi
 
-# Função para manter Xvfb rodando em produção
-if [ "$ENVIRONMENT" = "production" ]; then
-    echo "🔄 Configurando monitoramento do Xvfb..."
-    (
-        while true; do
-            sleep 30
-            if ! pgrep -x "Xvfb" > /dev/null; then
-                echo "⚠️ Xvfb parou, reiniciando..."
-                Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
-                sleep 2
-                echo "✅ Xvfb reiniciado"
-            fi
-        done
-    ) &
-    echo "✅ Monitor do Xvfb iniciado"
-fi
-
-# Verificar ChromeDriver
-echo "🔍 Verificando ChromeDriver..."
-if command -v chromedriver >/dev/null 2>&1; then
-    echo "✅ ChromeDriver encontrado: $(chromedriver --version 2>/dev/null | head -1 || echo 'Versão não disponível')"
+# Verificar e instalar ChromeDriver se necessário
+if [ ! -f "/usr/local/bin/chromedriver" ]; then
+    echo "🔧 ChromeDriver não encontrado, instalando..."
+    cd /tmp
+    wget -q -O chromedriver.zip "https://storage.googleapis.com/chrome-for-testing-public/138.0.7204.0/linux64/chromedriver-linux64.zip"
+    unzip -o chromedriver.zip
+    chmod +x chromedriver-linux64/chromedriver
+    mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+    echo "✅ ChromeDriver instalado: $(chromedriver --version)"
+    rm -rf chromedriver* /tmp/chromedriver*
 else
-    echo "❌ ChromeDriver não encontrado"
+    echo "✅ ChromeDriver já instalado: $(chromedriver --version)"
 fi
 
 # Verificar Google Chrome
-if command -v google-chrome >/dev/null 2>&1; then
-    echo "✅ Google Chrome encontrado: $(google-chrome --version 2>/dev/null || echo 'Versão não disponível')"
-elif command -v chromium >/dev/null 2>&1; then
-    echo "✅ Chromium encontrado: $(chromium --version 2>/dev/null || echo 'Versão não disponível')"
+if command -v google-chrome &> /dev/null; then
+    echo "✅ Google Chrome: $(google-chrome --version)"
 else
-    echo "❌ Chrome/Chromium não encontrado"
+    echo "❌ Google Chrome não encontrado"
 fi
 
-# Aguardar banco de dados se especificado
-if [ -n "$DATABASE_URL" ]; then
-    echo "⏳ Aguardando banco de dados..."
-    ./wait-for-it.sh ${DB_HOST:-localhost}:${DB_PORT:-5432} --timeout=30 --strict -- echo "✅ Banco de dados disponível"
-fi
+# Limpar cache de webdriver-manager antigo
+rm -rf /home/.wdm /app/.wdm 2>/dev/null || true
 
-# Executar migrações se necessário
-if [ "$RUN_MIGRATIONS" = "true" ]; then
-    echo "🔄 Executando migrações do banco de dados..."
-    python -c "
-from app import create_app
-from app.infrastructure.database.models import db
-app = create_app()
-with app.app_context():
-    try:
-        db.create_all()
-        print('✅ Tabelas criadas/atualizadas com sucesso')
-    except Exception as e:
-        print(f'⚠️ Erro nas migrações: {e}')
-"
-fi
+# Configurar permissões
+chmod 755 /usr/local/bin/chromedriver 2>/dev/null || true
 
-# Configurar variáveis de ambiente para Selenium
-export DISPLAY=:99
-export CHROME_BIN=/usr/bin/google-chrome
-export CHROMEDRIVER_PATH=/usr/bin/chromedriver
+echo "🚀 Iniciando aplicação..."
 
-echo "🌟 Iniciando aplicação..."
+# Executar migrações
+echo "📊 Executando migrações do banco..."
+flask db upgrade
 
-# Executar o comando passado
+# Executar comando
 exec "$@" 
