@@ -1511,67 +1511,30 @@ Aguardando logs do sistema...
             addLog('📸 Capturando screenshot...');
             
             try {
-                scraper = get_or_create_scraper()
+                const response = await fetch('/api/selenium-visual/screenshot');
+                const data = await response.json();
                 
-                if scraper is None or scraper.driver is None:
-                    return {
-                        'success': False,
-                        'error': 'Chrome não está disponível. Inicie um scraping primeiro.',
-                        'timestamp': datetime.now().strftime('%H:%M:%S')
-                    }
-                
-                try:
-                    # Verificar se o driver está respondendo
-                    try:
-                        current_url = scraper.driver.current_url
-                    except:
-                        # Driver não está respondendo, tentar recriar
-                        cleanup_global_scraper()
-                        scraper = get_or_create_scraper()
-                        if scraper is None:
-                            raise Exception("Não foi possível recriar o driver")
-                        current_url = scraper.driver.current_url
+                if (data.success) {
+                    const img = document.getElementById('screenshot');
+                    const info = document.getElementById('screenshotInfo');
                     
-                    # Se estiver na página em branco, navegar para o DJE
-                    if current_url == 'data:,' or 'about:blank' in current_url:
-                        scraper.driver.get("https://dje.tjsp.jus.br/cdje/index.do")
-                        time.sleep(2)
-                        current_url = scraper.driver.current_url
+                    img.src = 'data:image/png;base64,' + data.base64_data;
+                    img.style.display = 'block';
+                    info.innerHTML = `
+                        <strong>Screenshot capturado às ${data.timestamp}</strong><br>
+                        URL: ${data.url || 'N/A'}
+                    `;
                     
-                    # Capturar screenshot
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                        screenshot_path = tmp_file.name
+                    screenshotCount++;
+                    document.getElementById('screenshotCount').textContent = screenshotCount;
                     
-                    scraper.driver.save_screenshot(screenshot_path)
-                    
-                    with open(screenshot_path, 'rb') as img_file:
-                        img_data = img_file.read()
-                        base64_data = base64.b64encode(img_data).decode('utf-8')
-                    
-                    os.unlink(screenshot_path)
-                    
-                    return {
-                        'success': True,
-                        'base64_data': base64_data,
-                        'timestamp': datetime.now().strftime('%H:%M:%S'),
-                        'url': current_url
-                    }
-                    
-                except Exception as e:
-                    # Em caso de erro, limpar o scraper global
-                    cleanup_global_scraper()
-                    return {
-                        'success': False,
-                        'error': f'Erro ao capturar screenshot: {str(e)}',
-                        'timestamp': datetime.now().strftime('%H:%M:%S')
-                    }
-                
-            except Exception as e:
-                return {
-                    'success': False,
-                    'error': str(e),
-                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                    addLog('✅ Screenshot atualizado');
+                } else {
+                    addLog('❌ Erro no screenshot: ' + data.error);
                 }
+            } catch (error) {
+                addLog('❌ Erro: ' + error.message);
+            }
         }
         
         async function stopScraping() {
