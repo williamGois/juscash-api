@@ -339,61 +339,87 @@ class DJEScraperDebug:
             print("📍 Etapa 3: Preenchendo formulário de pesquisa...")
             
             # Aguardar campo data início estar disponível e interagível
-            print("  📅 Aguardando campo de data início...")
+            print(f"  📅 Aguardando campo de data início...")
             try:
-                data_inicio_field = self._wait_for_element_ready(By.ID, "dataInicio")
+                data_inicio_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.dtInicio")
                 data_inicio_str = data_inicio.strftime("%d%m%Y")
-                self._safe_send_keys(data_inicio_field, data_inicio_str)
-                print(f"  ✅ Data início preenchida: {data_inicio_str}")
+                self._safe_send_keys(data_inicio_element, data_inicio_str)
+                print(f"    ✅ Data início preenchida: {data_inicio_str}")
             except Exception as e:
                 print(f"  ⚠️ Erro ao preencher data início: {e}")
 
             # Aguardar campo data fim estar disponível e interagível  
-            print("  📅 Aguardando campo de data fim...")
+            print(f"  📅 Aguardando campo de data fim...")
             try:
-                data_fim_field = self._wait_for_element_ready(By.ID, "dataFim")
+                data_fim_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.dtFim")
                 data_fim_str = data_fim.strftime("%d%m%Y")
-                self._safe_send_keys(data_fim_field, data_fim_str)
-                print(f"  ✅ Data fim preenchida: {data_fim_str}")
+                self._safe_send_keys(data_fim_element, data_fim_str)
+                print(f"    ✅ Data fim preenchida: {data_fim_str}")
             except Exception as e:
                 print(f"  ⚠️ Erro ao preencher data fim: {e}")
 
             # Aguardar select caderno estar disponível
-            print("  📂 Aguardando select caderno...")
-            select_caderno_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.cdCaderno")
-            
-            # Usar JavaScript para selecionar o valor do select
+            print(f"  📂 Aguardando select caderno...")
             try:
-                select_caderno = Select(select_caderno_element)
-                select_caderno.select_by_value("-11")
-                print("  ✅ Caderno selecionado via Selenium")
-            except:
-                print("  ⚠️ Selenium falhou, usando JavaScript para select")
-                driver.execute_script("""
-                    var select = arguments[0];
-                    select.value = '-11';
-                    select.dispatchEvent(new Event('change', {bubbles: true}));
-                """, select_caderno_element)
-                print("  ✅ Caderno selecionado via JavaScript")
-
-            # Aguardar campo de busca estar disponível
-            print("  🔍 Aguardando campo de busca...")
-            search_box = self._wait_for_element_ready(By.ID, "procura")
-            self._safe_send_keys(search_box, '"RPV" e "pagamento pelo INSS"')
+                caderno_select = self._wait_for_element_ready(By.NAME, "cadernos")
+                # Para RPV, usar "caderno 3 - Judicial - 1ª Instância"
+                from selenium.webdriver.support.ui import Select
+                select = Select(caderno_select)
+                select.select_by_visible_text("caderno 3 - Judicial - 1ª Instância - Capital - Parte I")
+                print(f"  ✅ Caderno selecionado via Selenium")
+            except Exception as e:
+                print(f"  ⚠️ Erro ao selecionar caderno: {e}")
+                try:
+                    # Fallback: tentar selecionar qualquer caderno judicial
+                    from selenium.webdriver.support.ui import Select
+                    select = Select(caderno_select)
+                    select.select_by_index(3)  # Caderno 3
+                    print(f"  ✅ Caderno 3 selecionado como fallback")
+                except Exception as e2:
+                    print(f"  ❌ Fallback caderno falhou: {e2}")
+            
+            # Preencher campo de busca com termos RPV
+            print(f"  🔍 Aguardando campo de busca...")
+            try:
+                busca_element = self._wait_for_element_ready(By.NAME, "dadosConsulta.pesquisaLivre")
+                termos_busca = '"RPV" e "pagamento pelo INSS"'
+                self._safe_send_keys(busca_element, termos_busca)
+                print(f"    ✅ Texto inserido: {termos_busca}")
+            except Exception as e:
+                print(f"  ⚠️ Erro ao preencher busca: {e}")
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para submeter o formulário...")
             
             # Etapa 4: Submeter formulário
-            print("📍 Etapa 4: Submetendo formulário...")
+            print(f"📍 Etapa 4: Submetendo formulário...")
             
-            # Aguardar botão submit estar disponível
-            print("  🔘 Aguardando botão submit...")
-            submit_button = self._wait_for_element_ready(By.CSS_SELECTOR, "form[name='consultaAvancadaForm'] input[type='submit']")
-            self._safe_click(submit_button)
-
-            print("⏳ Aguardando resultados...")
-            time.sleep(8)
+            # Clicar no botão de pesquisar
+            print(f"  🔘 Aguardando botão submit...")
+            try:
+                # Procurar por botão "Pesquisar"
+                submit_button = self._wait_for_element_ready(By.XPATH, "//input[@type='button' and @value='Pesquisar']")
+                self._safe_click(submit_button)
+                print(f"    ✅ Botão Pesquisar clicado")
+            except Exception as e:
+                print(f"  ⚠️ Erro no botão Pesquisar: {e}")
+                # Fallback: tentar outros botões
+                try:
+                    submit_button = self._wait_for_element_ready(By.XPATH, "//button[contains(text(), 'Pesquisar')] | //input[contains(@value, 'Pesquisar')]")
+                    self._safe_click(submit_button)
+                    print(f"    ✅ Botão submit alternativo clicado")
+                except Exception as e2:
+                    print(f"  ❌ Todos os botões de submit falharam: {e2}")
+                    # Tentar submeter o formulário diretamente
+                    try:
+                        form = driver.find_element(By.TAG_NAME, "form")
+                        form.submit()
+                        print(f"    ✅ Formulário submetido diretamente")
+                    except Exception as e3:
+                        print(f"    ❌ Submit direto falhou: {e3}")
+            
+            print(f"⏳ Aguardando resultados...")
+            time.sleep(5)  # Aguardar página de resultados carregar
             
             if pause_between_steps and self.visual_mode:
                 input("⏸️ Pressione Enter para processar os resultados...")
